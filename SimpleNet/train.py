@@ -47,13 +47,13 @@ parser.add_argument('--model_val_path', default="model.pt", type=str)
 
 args = parser.parse_args()
 
-train_img_dir = args.dataset_dir + "images/train/"
-train_gt_dir = args.dataset_dir + "maps/train/"
-train_fix_dir = args.dataset_dir + "fixations/train/"
+train_img_dir = os.path.join(args.dataset_dir, "images/train/")
+train_gt_dir = os.path.join(args.dataset_dir, "maps/train/")
+train_fix_dir = os.path.join(args.dataset_dir, "fixations/train/")
 
-val_img_dir = args.dataset_dir + "images/val/"
-val_gt_dir = args.dataset_dir + "maps/val/"
-val_fix_dir = args.dataset_dir + "fixations/fixations/"
+val_img_dir = os.path.join(args.dataset_dir, "images/val/")
+val_gt_dir = os.path.join(args.dataset_dir, "maps/val/")
+val_fix_dir = os.path.join(args.dataset_dir, "fixations/fixations/")
 
 if args.enc_model == "pnas":
     print("PNAS Model")
