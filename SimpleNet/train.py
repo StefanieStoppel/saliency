@@ -53,7 +53,7 @@ train_fix_dir = os.path.join(args.dataset_dir, "fixations/train/")
 
 val_img_dir = os.path.join(args.dataset_dir, "images/val/")
 val_gt_dir = os.path.join(args.dataset_dir, "maps/val/")
-val_fix_dir = os.path.join(args.dataset_dir, "fixations/fixations/")
+val_fix_dir = os.path.join(args.dataset_dir, "fixations/val/")
 
 if args.enc_model == "pnas":
     print("PNAS Model")
