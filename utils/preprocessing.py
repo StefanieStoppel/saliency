@@ -12,7 +12,6 @@ def create_saliency_map(input_img, fixation_img, output_img):
     im = mask + img  # random image
     masked = np.ma.masked_where(mask != 0, im)
 
-
     plt.figure()
     plt.subplot(1, 2, 1)
     plt.imshow(img)

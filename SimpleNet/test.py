@@ -95,8 +95,8 @@ def validate(model, loader, device, args):
     print('CC : {:.5f}, KLDIV : {:.5f}, NSS : {:.5f}, SIM : {:.5f}  time:{:3f} minutes'.format(cc_loss.avg,
                                                                                                kldiv_loss.avg,
                                                                                                nss_loss.avg,
-                                                                                               sim_loss.avg, (
-                                                                                                           time.time() - tic) / 60))
+                                                                                               sim_loss.avg,
+                                                                                               (time.time() - tic) / 60))
     sys.stdout.flush()
 
     return cc_loss.avg
