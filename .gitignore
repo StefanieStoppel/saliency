@@ -7,3 +7,4 @@ PNAS/PNASNet-5_Large.pth
 saliency_env
 *.iml
 .idea
+gt_fixations
