@@ -33,7 +33,7 @@ class SaliconDataset(DataLoader):
             gt = gt / 255.0
         fixations = (fixations > 0.5).astype('float')
         assert np.min(gt) >= 0.0 and np.max(gt) <= 1.0
-        assert np.min(fixations) == 0.0 and np.max(fixations) == 1.0
+        # assert np.min(fixations) == 0.0 and np.max(fixations) == 1.0
         return img, torch.FloatTensor(gt), torch.FloatTensor(fixations)
 
     def __getitem__(self, idx):

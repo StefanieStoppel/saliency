@@ -11,9 +11,9 @@ from utils.mlflow import log_val_metrics, log_training_params, setup_mlflow_expe
 
 matplotlib.use('Agg')
 from torch.utils.data import DataLoader
-from dataloader import SaliconDataset
-from loss import *
-from utils import blur, AverageMeter
+from simple_net.dataloader import SaliconDataset, CustomDataset
+from simple_net.loss import *
+from simple_net.utils import blur, AverageMeter
 
 import mlflow
 from mlflow import pytorch
@@ -21,6 +21,7 @@ from mlflow import pytorch
 parser = argparse.ArgumentParser()
 parser.add_argument('--create_experiment', default=False, type=bool)
 parser.add_argument('--experiment_name', default="", type=str)
+parser.add_argument('--custom_loader', default=True, type=bool)
 parser.add_argument('--no_epochs', default=40, type=int)
 parser.add_argument('--lr', default=1e-4, type=float)
 parser.add_argument('--kldiv', default=True, type=bool)
@@ -65,31 +66,31 @@ val_fix_dir = os.path.join(args.dataset_dir, "fixations/val/")
 
 if args.enc_model == "pnas":
     print("PNAS Model")
-    from model import PNASModel
+    from simple_net.model import PNASModel
 
     model = PNASModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 elif args.enc_model == "densenet":
     print("DenseNet Model")
-    from model import DenseModel
+    from simple_net.model import DenseModel
 
     model = DenseModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 elif args.enc_model == "resnet":
     print("ResNet Model")
-    from model import ResNetModel
+    from simple_net.model import ResNetModel
 
     model = ResNetModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 elif args.enc_model == "vgg":
     print("VGG Model")
-    from model import VGGModel
+    from simple_net.model import VGGModel
 
     model = VGGModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 elif args.enc_model == "mobilenet":
     print("Mobile NetV2")
-    from model import MobileNetV2
+    from simple_net.model import MobileNetV2
 
     model = MobileNetV2(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
@@ -102,8 +103,12 @@ model.to(device)
 train_img_ids = [nm.split(".")[0] for nm in os.listdir(train_img_dir)]
 val_img_ids = [nm.split(".")[0] for nm in os.listdir(val_img_dir)]
 
-train_dataset = SaliconDataset(train_img_dir, train_gt_dir, train_fix_dir, train_img_ids)
-val_dataset = SaliconDataset(val_img_dir, val_gt_dir, val_fix_dir, val_img_ids)
+if args.custom_loader:
+    train_dataset = CustomDataset(train_img_dir, train_gt_dir, train_fix_dir, train_img_ids)
+    val_dataset = CustomDataset(val_img_dir, val_gt_dir, val_fix_dir, val_img_ids)
+else:
+    train_dataset = SaliconDataset(train_img_dir, train_gt_dir, train_fix_dir, train_img_ids)
+    val_dataset = SaliconDataset(val_img_dir, val_gt_dir, val_fix_dir, val_img_ids)
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                                            num_workers=args.no_workers)
@@ -220,7 +225,7 @@ def validate(model, loader, epoch, device, args):
 # create mlflow experiment
 experiment_id, run_id = setup_mlflow_experiment(args)
 
-with mlflow.start_run(run_id=run_id, experiment_id=experiment_id):
+with mlflow.start_run(run_name=run_id, experiment_id=experiment_id):
     loss_type = _get_loss_type_str(args)
     log_training_params(device, loss_type, args)
 

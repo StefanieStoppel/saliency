@@ -4,8 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import sys
 sys.path.append('../PNAS/')
-from PNASnet import *
-from genotypes import PNASNet
+from PNAS.genotypes import PNASNet
 
 class PNASModel(nn.Module):
 

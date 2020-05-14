@@ -9,13 +9,14 @@ matplotlib.use('Agg')
 from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
-from dataloader import TestLoader, SaliconDataset
+from dataloader import TestLoader, SaliconDataset, CustomDataset
 from loss import *
 from tqdm import tqdm
 from utils import *
 
 parser = argparse.ArgumentParser()
 
+parser.add_argument('--custom_loader', default=True, type=bool)
 parser.add_argument('--val_img_dir', default="../images/", type=str)
 parser.add_argument('--model_val_path', default="../saved_models/salicon_pnas.pt", type=str)
 parser.add_argument('--no_workers', default=4, type=int)
@@ -108,7 +109,10 @@ if args.validate:
     val_fix_dir = args.dataset_dir + "fixations/val/"
 
     val_img_ids = [nm.split(".")[0] for nm in os.listdir(val_img_dir)]
-    val_dataset = SaliconDataset(val_img_dir, val_gt_dir, val_fix_dir, val_img_ids)
+    if args.custom_loader:
+        val_dataset = CustomDataset(val_img_dir, val_gt_dir, val_fix_dir, val_img_ids)
+    else:
+        val_dataset = SaliconDataset(val_img_dir, val_gt_dir, val_fix_dir, val_img_ids)
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.no_workers)
     with torch.no_grad():
         validate(model, val_loader, device, args)
