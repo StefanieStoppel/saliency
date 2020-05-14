@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import os, cv2
 
+
+
 class SaliconDataset(DataLoader):
     def __init__(self, img_dir, gt_dir, fix_dir, img_ids, exten='.png'):
         self.img_dir = img_dir
@@ -19,32 +21,53 @@ class SaliconDataset(DataLoader):
                                 [0.5, 0.5, 0.5])
         ])    
         
+    def _convert_images(self, fix_path, gt_path, img_path):
+        img = Image.open(img_path).convert('RGB')
+        gt = np.array(Image.open(gt_path).convert('L'))
+        gt = gt.astype('float')
+        gt = cv2.resize(gt, (256, 256))
+        fixations = np.array(Image.open(fix_path).convert('L'))
+        fixations = fixations.astype('float')
+        img = self.img_transform(img)
+        if np.max(gt) > 1.0:
+            gt = gt / 255.0
+        fixations = (fixations > 0.5).astype('float')
+        assert np.min(gt) >= 0.0 and np.max(gt) <= 1.0
+        assert np.min(fixations) == 0.0 and np.max(fixations) == 1.0
+        return img, torch.FloatTensor(gt), torch.FloatTensor(fixations)
+
     def __getitem__(self, idx):
         img_id = self.img_ids[idx]
         img_path = os.path.join(self.img_dir, img_id + self.exten)
         gt_path = os.path.join(self.gt_dir, img_id + self.exten)
         fix_path = os.path.join(self.fix_dir, img_id + self.exten)
-        
-        img = Image.open(img_path).convert('RGB')
 
-        gt = np.array(Image.open(gt_path).convert('L'))
-        gt = gt.astype('float')
-        gt = cv2.resize(gt, (256,256))
+        return self._convert_images(fix_path, gt_path, img_path)
 
-        fixations = np.array(Image.open(fix_path).convert('L'))
-        fixations = fixations.astype('float')
-        
-        img = self.img_transform(img)
-        if np.max(gt) > 1.0:
-            gt = gt / 255.0
-        fixations = (fixations > 0.5).astype('float')
-        
-        assert np.min(gt)>=0.0 and np.max(gt)<=1.0
-        assert np.min(fixations)==0.0 and np.max(fixations)==1.0
-        return img, torch.FloatTensor(gt), torch.FloatTensor(fixations)
-    
     def __len__(self):
         return len(self.img_ids)    
+
+
+class CustomDataset(SaliconDataset):
+    def __init__(self, img_dir, gt_dir, fix_dir, img_ids, exten='.png'):
+        super(CustomDataset, self).__init__(img_dir, gt_dir, fix_dir, img_ids, exten)
+
+    def __getitem__(self, idx):
+        img_id = self.img_ids[idx]
+        # saliency maps are called fixations here,
+        # while fixations are color image overlayed with saliency map
+        gt_id = img_id.replace("image", "fixation")
+        fix_id = img_id.replace("image", "map")
+
+        img_path = os.path.join(self.img_dir, img_id + self.exten)
+        gt_path = os.path.join(self.gt_dir, gt_id + self.exten)
+        fix_path = os.path.join(self.fix_dir, fix_id + self.exten)
+        
+        return super(CustomDataset, self)._convert_images(fix_path, gt_path, img_path)
+
+    def __len__(self):
+        return super(CustomDataset, self).__len__()
+
 
 class TestLoader(DataLoader):
     def __init__(self, img_dir, img_ids):
@@ -67,6 +90,7 @@ class TestLoader(DataLoader):
     
     def __len__(self):
         return len(self.img_ids)
+
 
 class MITDataset(DataLoader):
     def __init__(self, img_dir, gt_dir, fix_dir, img_ids, exten='.png', val=False):
