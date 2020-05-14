@@ -258,8 +258,8 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
                 print('[{:2d},  save, {}]'.format(epoch, args.model_val_path))
                 model_name = os.path.basename(args.model_val_path)
                 model_file_name, file_extension = os.path.splitext(model_name)
-                model_path_torch = os.path.join(args.model_val_path, model_file_name, f"__epoch-{epoch}{file_extension}")
-                model_path_mlflow = os.path.join(artifact_path, model_file_name, f"__epoch-{epoch}{file_extension}")
+                model_path_torch = os.path.join(args.model_val_path, model_file_name, file_extension)
+                model_path_mlflow = os.path.join(artifact_path, model_file_name, file_extension)
                 if torch.cuda.device_count() > 1:
                     torch.save(model.module.state_dict(), model_path_torch)
                 else:
@@ -270,3 +270,5 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
 
         if args.lr_sched:
             scheduler.step()
+
+# todo: add training steps to log
