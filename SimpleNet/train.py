@@ -7,13 +7,20 @@ import matplotlib
 import torch
 import torch.nn as nn
 
+from utils.mlflow import log_val_metrics, log_training_params, setup_mlflow_experiment
+
 matplotlib.use('Agg')
 from torch.utils.data import DataLoader
 from dataloader import SaliconDataset
 from loss import *
 from utils import blur, AverageMeter
 
+import mlflow
+from mlflow import pytorch
+
 parser = argparse.ArgumentParser()
+parser.add_argument('--create_experiment', default=False, type=bool)
+parser.add_argument('--experiment_name', default="", type=str)
 parser.add_argument('--no_epochs', default=40, type=int)
 parser.add_argument('--lr', default=1e-4, type=float)
 parser.add_argument('--kldiv', default=True, type=bool)
@@ -55,29 +62,35 @@ val_img_dir = os.path.join(args.dataset_dir, "images/val/")
 val_gt_dir = os.path.join(args.dataset_dir, "maps/val/")
 val_fix_dir = os.path.join(args.dataset_dir, "fixations/val/")
 
+
 if args.enc_model == "pnas":
     print("PNAS Model")
     from model import PNASModel
+
     model = PNASModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 elif args.enc_model == "densenet":
     print("DenseNet Model")
     from model import DenseModel
+
     model = DenseModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 elif args.enc_model == "resnet":
     print("ResNet Model")
     from model import ResNetModel
+
     model = ResNetModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 elif args.enc_model == "vgg":
     print("VGG Model")
     from model import VGGModel
+
     model = VGGModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 elif args.enc_model == "mobilenet":
     print("Mobile NetV2")
     from model import MobileNetV2
+
     model = MobileNetV2(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -97,6 +110,21 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.no_workers)
 
 
+def _get_loss_type_str(args):
+    loss_type = ""
+    if args.kldiv:
+        loss_type = "kldiv"
+    if args.cc:
+        loss_type = "cc"
+    if args.nss:
+        loss_type = "nss"
+    if args.l1:
+        loss_type = "l1"
+    if args.sim:
+        loss_type = "sim"
+    return loss_type
+
+
 def loss_func(pred_map, gt, fixations, args):
     loss = torch.FloatTensor([0.0]).cuda()
     criterion = nn.L1Loss()
@@ -113,7 +141,7 @@ def loss_func(pred_map, gt, fixations, args):
     return loss
 
 
-def train(model, optimizer, loader, epoch, device, args):
+def train(model, optimizer, loader, epoch, device, loss_type, args):
     model.train()
     tic = time.time()
 
@@ -135,22 +163,25 @@ def train(model, optimizer, loader, epoch, device, args):
 
         optimizer.step()
         if idx % args.log_interval == (args.log_interval - 1):
+            avg_loss = cur_loss / args.log_interval
+            mlflow.log_metric(f"train--avg_batch_loss--{loss_type}", avg_loss)
             print(
-                '[{:2d}, {:5d}] avg_loss : {:.5f}, time:{:3f} minutes'.format(epoch, idx, cur_loss / args.log_interval,
-                                                                              (time.time() - tic) / 60))
+                '[{:2d}, {:5d}] train--avg_batch_loss--{} : {:.5f}, time:{:3f} minutes'.format(epoch, idx, loss_type, avg_loss,
+                                                                                  (time.time() - tic) / 60))
             cur_loss = 0.0
             sys.stdout.flush()
 
-    print('[{:2d}, train] avg_loss : {:.5f}'.format(epoch, total_loss / len(loader)))
+    avg_epoch_loss = total_loss / len(loader)
+    mlflow.log_metric(f"train--avg_epoch_loss--{loss_type}", avg_epoch_loss)
+    print('[{:2d}, train] train--avg_epoch_loss--{} : {:.5f}'.format(epoch, loss_type, avg_epoch_loss))
     sys.stdout.flush()
 
-    return total_loss / len(loader)
+    return avg_epoch_loss
 
 
 def validate(model, loader, epoch, device, args):
     model.eval()
     tic = time.time()
-    total_loss = 0.0
     cc_loss = AverageMeter()
     kldiv_loss = AverageMeter()
     nss_loss = AverageMeter()
@@ -172,46 +203,57 @@ def validate(model, loader, epoch, device, args):
         nss_loss.update(nss(blur_map, gt))
         sim_loss.update(similarity(blur_map, gt))
 
-    print('[{:2d},   val] CC : {:.5f}, KLDIV : {:.5f}, NSS : {:.5f}, SIM : {:.5f}  time:{:3f} minutes'.format(epoch,
-                                                                                                              cc_loss.avg,
-                                                                                                              kldiv_loss.avg,
-                                                                                                              nss_loss.avg,
-                                                                                                              sim_loss.avg,
-                                                                                                              (
-                                                                                                                          time.time() - tic) / 60))
+    execution_time_min = (time.time() - tic) / 60
+    log_val_metrics(cc_loss, epoch, kldiv_loss, nss_loss, sim_loss, execution_time_min)
+    print('[{:2d},   val] CC : {:.5f}, KLDIV : {:.5f}, NSS : {:.5f}, SIM : {:.5f}  time:{:3f} minutes'
+          .format(epoch,
+                  cc_loss.avg,
+                  kldiv_loss.avg,
+                  nss_loss.avg,
+                  sim_loss.avg,
+                  execution_time_min))
     sys.stdout.flush()
 
     return cc_loss.avg
 
 
-params = list(filter(lambda p: p.requires_grad, model.parameters()))
+# create mlflow experiment
+experiment_id, run_id = setup_mlflow_experiment(args)
 
-if args.optim == "Adam":
-    optimizer = torch.optim.Adam(params, lr=args.lr)
-if args.optim == "Adagrad":
-    optimizer = torch.optim.Adagrad(params, lr=args.lr)
-if args.optim == "SGD":
-    optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9)
-if args.lr_sched:
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+with mlflow.start_run(run_id=run_id, experiment_id=experiment_id):
+    loss_type = _get_loss_type_str(args)
+    log_training_params(device, loss_type, args)
 
-print(device)
+    params = list(filter(lambda p: p.requires_grad, model.parameters()))
 
-for epoch in range(0, args.no_epochs):
-    loss = train(model, optimizer, train_loader, epoch, device, args)
-
-    with torch.no_grad():
-        cc_loss = validate(model, val_loader, epoch, device, args)
-        if epoch == 0:
-            best_loss = cc_loss
-        if best_loss <= cc_loss:
-            best_loss = cc_loss
-            print('[{:2d},  save, {}]'.format(epoch, args.model_val_path))
-            if torch.cuda.device_count() > 1:
-                torch.save(model.module.state_dict(), args.model_val_path)
-            else:
-                torch.save(model.state_dict(), args.model_val_path)
-        print()
-
+    if args.optim == "Adam":
+        optimizer = torch.optim.Adam(params, lr=args.lr)
+    if args.optim == "Adagrad":
+        optimizer = torch.optim.Adagrad(params, lr=args.lr)
+    if args.optim == "SGD":
+        optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9)
     if args.lr_sched:
-        scheduler.step()
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+
+    for epoch in range(0, args.no_epochs):
+        loss_type = _get_loss_type_str(args)
+        loss = train(model, optimizer, train_loader, epoch, device, loss_type, args)
+
+        with torch.no_grad():
+            cc_loss = validate(model, val_loader, epoch, device, args)
+            if epoch == 0:
+                best_loss = cc_loss
+            if best_loss <= cc_loss:
+                best_loss = cc_loss
+                print('[{:2d},  save, {}]'.format(epoch, args.model_val_path))
+                model_file_path, file_extension = os.path.splitext(args.model_val_path)
+                model_path = os.path.join(model_file_path, f"__epoch-{epoch}{file_extension}")
+                if torch.cuda.device_count() > 1:
+                    pytorch.save_model(model.module.state_dict(), model_path)
+                else:
+                    pytorch.save_model(model.state_dict(), model_path)
+
+            print()
+
+        if args.lr_sched:
+            scheduler.step()
