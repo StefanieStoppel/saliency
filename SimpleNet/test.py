@@ -54,8 +54,9 @@ elif args.enc_model == "mobilenet":
     from model import MobileNetV2
     model = MobileNetV2()
 
-if args.enc_model != "mobilenet":
+if args.enc_model != "mobilenet" and torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
+
 model.load_state_dict(torch.load(args.model_val_path))
 
 model = model.to(device)
@@ -66,6 +67,7 @@ vis_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=Fals
 
 
 def validate(model, loader, device, args):
+    print("validating...")
     model.eval()
     tic = time.time()
     total_loss = 0.0
@@ -103,7 +105,7 @@ def validate(model, loader, device, args):
 if args.validate:
     val_img_dir = args.dataset_dir + "images/val/"
     val_gt_dir = args.dataset_dir + "maps/val/"
-    val_fix_dir = args.dataset_dir + "fixations/fixations/"
+    val_fix_dir = args.dataset_dir + "fixations/val/"
 
     val_img_ids = [nm.split(".")[0] for nm in os.listdir(val_img_dir)]
     val_dataset = SaliconDataset(val_img_dir, val_gt_dir, val_fix_dir, val_img_ids)
