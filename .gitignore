@@ -8,3 +8,4 @@ saliency_env
 *.iml
 .idea
 gt_fixations
+mlruns
