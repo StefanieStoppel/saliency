@@ -7,7 +7,7 @@ import matplotlib
 import torch
 import torch.nn as nn
 
-from utils.mlflow import log_val_metrics, log_training_params, setup_mlflow_experiment
+from utils.mlflow_utils import log_val_metrics, log_training_params, setup_mlflow_experiment, get_artifact_path
 
 matplotlib.use('Agg')
 from torch.utils.data import DataLoader
@@ -223,9 +223,14 @@ def validate(model, loader, epoch, device, args):
 
 
 # create mlflow experiment
-experiment_id, run_id = setup_mlflow_experiment(args)
+experiment_id, run_name = setup_mlflow_experiment(args)
 
-with mlflow.start_run(run_name=run_id, experiment_id=experiment_id):
+with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
+    active_run = mlflow.active_run()
+    run_id = active_run.info.run_id
+    print(f"Starting run {run_id} of experiment {experiment_id}.")
+    artifact_path = get_artifact_path(active_run)
+
     loss_type = _get_loss_type_str(args)
     log_training_params(device, loss_type, args)
 
@@ -251,12 +256,15 @@ with mlflow.start_run(run_name=run_id, experiment_id=experiment_id):
             if best_loss <= cc_loss:
                 best_loss = cc_loss
                 print('[{:2d},  save, {}]'.format(epoch, args.model_val_path))
-                model_file_path, file_extension = os.path.splitext(args.model_val_path)
-                model_path = os.path.join(model_file_path, f"__epoch-{epoch}{file_extension}")
+                model_name = os.path.basename(args.model_val_path)
+                model_file_name, file_extension = os.path.splitext(model_name)
+                model_path_torch = os.path.join(args.model_val_path, model_file_name, f"__epoch-{epoch}{file_extension}")
+                model_path_mlflow = os.path.join(artifact_path, model_file_name, f"__epoch-{epoch}{file_extension}")
                 if torch.cuda.device_count() > 1:
-                    pytorch.save_model(model.module.state_dict(), model_path)
+                    torch.save(model.module.state_dict(), model_path_torch)
                 else:
-                    pytorch.save_model(model.state_dict(), model_path)
+                    torch.save(model.state_dict(), args.model_val_path)
+                pytorch.save_model(model, model_path_mlflow)
 
             print()
 

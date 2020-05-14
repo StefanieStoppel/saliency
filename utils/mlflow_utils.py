@@ -1,7 +1,13 @@
 import sys
 import time
+import os
+from urllib.parse import urlparse
 
 import mlflow
+
+
+def sync_neptune():
+    os.system("neptune mlflow")
 
 
 def setup_mlflow_experiment(args):
@@ -17,12 +23,19 @@ def setup_mlflow_experiment(args):
         experiment_id = mlflow.create_experiment(args.experiment_name)
     return experiment_id, run_id
 
+
+def get_artifact_path(active_run):
+    p = urlparse(active_run.info.artifact_uri)
+    final_path = os.path.abspath(os.path.join(p.netloc, p.path))
+    return final_path
+
+
 def log_val_metrics(cc_loss, epoch, kldiv_loss, nss_loss, sim_loss, execution_time_min):
     metrics = {
-        "val--avg--cc_loss": cc_loss.avg,
-        "val--avg--kldiv": kldiv_loss.avg,
-        "val--avg--nss_loss": nss_loss.avg,
-        "val--avg--sim_loss": sim_loss.avg,
+        "val--avg--cc_loss": cc_loss.avg.cpu().item(),
+        "val--avg--kldiv": kldiv_loss.avg.cpu().item(),
+        "val--avg--nss_loss": nss_loss.avg.cpu().item(),
+        "val--avg--sim_loss": sim_loss.avg.cpu().item(),
         "val--time": execution_time_min,
         "epoch": epoch,
     }
