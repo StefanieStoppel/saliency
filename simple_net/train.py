@@ -59,15 +59,6 @@ parser.add_argument('--model_val_path', default="model.pt", type=str)
 
 args = parser.parse_args()
 
-train_img_dir = os.path.join(args.dataset_dir, "images/train/")
-train_gt_dir = os.path.join(args.dataset_dir, "maps/train/")
-train_fix_dir = os.path.join(args.dataset_dir, "fixations/train/")
-
-val_img_dir = os.path.join(args.dataset_dir, "images/val/")
-val_gt_dir = os.path.join(args.dataset_dir, "maps/val/")
-val_fix_dir = os.path.join(args.dataset_dir, "fixations/val/")
-
-
 if args.enc_model == "pnas":
     print("PNAS Model")
     from simple_net.model import PNASModel
@@ -104,6 +95,15 @@ if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 model.to(device)
 
+train_img_dir = os.path.join(args.dataset_dir, "images/train/")
+train_gt_dir = os.path.join(args.dataset_dir, "maps/train/")  # black white
+train_fix_dir = os.path.join(args.dataset_dir, "fixations/train/")  # color with maps overlayed
+
+val_img_dir = os.path.join(args.dataset_dir, "images/val/")
+val_gt_dir = os.path.join(args.dataset_dir, "maps/val/")
+val_fix_dir = os.path.join(args.dataset_dir, "fixations/val/")
+
+
 train_img_ids = [nm.split(".")[0] for nm in os.listdir(train_img_dir)]
 val_img_ids = [nm.split(".")[0] for nm in os.listdir(val_img_dir)]
 
@@ -134,7 +134,7 @@ def save_model(logger, artifact_path, epoch, args):
     model_path = os.path.join(artifact_path, model_name)
     logger.info(f"Saving model to {model_path}.")
     if torch.cuda.device_count() > 1:
-        pytorch.save_model(model, model_name)
+        pytorch.log_model(model, model_name)
     else:
         pytorch.log_model(model, model_name)
 
@@ -171,7 +171,7 @@ def loss_func(pred_map, gt, fixations, args):
 
 
 def train(model, optimizer, loader, epoch, device,
-          loss_type, args, log_file_path, logger):
+          loss_type, args, log_file_path, logger, artifact_path):
     model.train()
     tic = time.time()
 
@@ -199,6 +199,7 @@ def train(model, optimizer, loader, epoch, device,
                 '[{:2d}, {:5d}] train--avg_batch_loss--{} : {:.5f}, time:{:3f} minutes'.format(epoch, idx, loss_type, avg_loss,
                                                                                   (time.time() - tic) / 60))
             mlflow.log_artifact(log_file_path)
+            save_model(logger, artifact_path, epoch, args)
             cur_loss = 0.0
             sys.stdout.flush()
 
@@ -281,7 +282,7 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
     for epoch in range(0, args.no_epochs):
         loss_type = _get_loss_type_str(args)
         loss = train(model, optimizer, train_loader, epoch, device,
-                     loss_type, args, log_file_path, logger)
+                     loss_type, args, log_file_path, logger, artifact_path)
 
         with torch.no_grad():
             cc_loss = validate(model, val_loader, epoch, device, args)
@@ -292,7 +293,7 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
                 logger.info('[{:2d},  save, {}]'.format(epoch, args.model_val_path))
                 save_model(logger, artifact_path, epoch, args)
 
-            logger.info()
+            logger.info("")
             mlflow.log_artifact(log_file_path)
 
         if args.lr_sched:

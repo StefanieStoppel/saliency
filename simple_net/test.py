@@ -9,19 +9,21 @@ matplotlib.use('Agg')
 from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
-from dataloader import TestLoader, SaliconDataset, CustomDataset
-from loss import *
+from simple_net.dataloader import TestLoader, SaliconDataset, CustomDataset
+from simple_net.loss import *
 from tqdm import tqdm
-from utils import *
+from simple_net.utils import *
+
+from mlflow import pytorch
 
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--custom_loader', default=True, type=bool)
-parser.add_argument('--val_img_dir', default="../images/", type=str)
-parser.add_argument('--model_val_path', default="../saved_models/salicon_pnas.pt", type=str)
+parser.add_argument('--val_img_dir', default="./images/", type=str)
+parser.add_argument('--model_val_path', default="./saved_models/salicon_pnas.pt", type=str)
 parser.add_argument('--no_workers', default=4, type=int)
 parser.add_argument('--enc_model', default="pnas", type=str)
-parser.add_argument('--results_dir', default="../results/", type=str)
+parser.add_argument('--results_dir', default="./results/", type=str)
 parser.add_argument('--validate', default=0, type=int)
 parser.add_argument('--save_results', default=1, type=int)
 parser.add_argument('--dataset_dir', default="/home/samyak/old_saliency/saliency/SALICON_NEW/", type=str)
@@ -32,33 +34,35 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 if args.enc_model == "pnas":
     print("PNAS Model")
-    from model import PNASModel
+    from simple_net.model import PNASModel
     model = PNASModel()
 
 elif args.enc_model == "densenet":
     print("DenseNet Model")
-    from model import DenseModel
+    from simple_net.model import DenseModel
     model = DenseModel()
 
 elif args.enc_model == "resnet":
     print("ResNet Model")
-    from model import ResNetModel
+    from simple_net.model import ResNetModel
     model = ResNetModel()
 
 elif args.enc_model == "vgg":
     print("VGG Model")
-    from model import VGGModel
+    from simple_net.model import VGGModel
     model = VGGModel()
 
 elif args.enc_model == "mobilenet":
     print("Mobile NetV2")
-    from model import MobileNetV2
+    from simple_net.model import MobileNetV2
     model = MobileNetV2()
 
 if args.enc_model != "mobilenet" and torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 
-model.load_state_dict(torch.load(args.model_val_path))
+pytorch.load_model(args.model_val_path)
+
+# model.load_state_dict(torch.load(args.model_val_path))
 
 model = model.to(device)
 
@@ -68,10 +72,8 @@ vis_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=Fals
 
 
 def validate(model, loader, device, args):
-    print("validating...")
     model.eval()
     tic = time.time()
-    total_loss = 0.0
     cc_loss = AverageMeter()
     kldiv_loss = AverageMeter()
     nss_loss = AverageMeter()
