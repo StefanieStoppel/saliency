@@ -3,8 +3,8 @@ from PIL import Image
 from torch.utils.data import DataLoader
 import numpy as np
 import torch
-import os, cv2
-
+import os
+import cv2
 
 
 class SaliconDataset(DataLoader):

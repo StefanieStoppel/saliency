@@ -22,15 +22,6 @@ from mlflow import pytorch
 import logging
 
 
-def setup_logging(log_file_path):
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", handlers=[
-            logging.FileHandler(log_file_path),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    root_logger = logging.getLogger()
-    return root_logger
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--create_experiment', default=False, type=bool)
 parser.add_argument('--experiment_name', default="", type=str)
@@ -128,6 +119,26 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.no_workers)
 
 
+def setup_logging(log_file_path):
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", handlers=[
+            logging.FileHandler(log_file_path),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    root_logger = logging.getLogger()
+    return root_logger
+
+
+def save_model(logger, artifact_path, epoch, args):
+    model_name = f"{epoch}/{os.path.basename(args.model_val_path)}"
+    model_path = os.path.join(artifact_path, model_name)
+    logger.info(f"Saving model to {model_path}.")
+    if torch.cuda.device_count() > 1:
+        pytorch.save_model(model, model_name)
+    else:
+        pytorch.log_model(model, model_name)
+
+
 def _get_loss_type_str(args):
     loss_type = ""
     if args.kldiv:
@@ -159,7 +170,8 @@ def loss_func(pred_map, gt, fixations, args):
     return loss
 
 
-def train(model, optimizer, loader, epoch, device, loss_type, args, log_file_path):
+def train(model, optimizer, loader, epoch, device,
+          loss_type, args, log_file_path, logger):
     model.train()
     tic = time.time()
 
@@ -268,7 +280,8 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
 
     for epoch in range(0, args.no_epochs):
         loss_type = _get_loss_type_str(args)
-        loss = train(model, optimizer, train_loader, epoch, device, loss_type, args, log_file_path)
+        loss = train(model, optimizer, train_loader, epoch, device,
+                     loss_type, args, log_file_path, logger)
 
         with torch.no_grad():
             cc_loss = validate(model, val_loader, epoch, device, args)
@@ -277,15 +290,7 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
             if best_loss <= cc_loss:
                 best_loss = cc_loss
                 logger.info('[{:2d},  save, {}]'.format(epoch, args.model_val_path))
-                model_name = os.path.basename(args.model_val_path)
-                model_file_name, file_extension = os.path.splitext(model_name)
-                model_path_torch = os.path.join(args.model_val_path, model_file_name, file_extension)
-                model_path_mlflow = os.path.join(artifact_path, model_file_name, file_extension)
-                if torch.cuda.device_count() > 1:
-                    torch.save(model.module.state_dict(), args.model_val_path)
-                else:
-                    torch.save(model.state_dict(), args.args.model_val_path)
-                pytorch.save_model(model, model_path_mlflow)
+                save_model(logger, artifact_path, epoch, args)
 
             logger.info()
             mlflow.log_artifact(log_file_path)
