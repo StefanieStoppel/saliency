@@ -30,6 +30,17 @@ def get_artifact_path(active_run):
     return final_path
 
 
+def get_log_path(active_run):
+    run_path = get_run_path(active_run)
+    log_path = os.path.abspath(os.path.join(run_path, "logs"))
+    os.makedirs(log_path, exist_ok=True)
+    return log_path
+
+
+def get_run_path(active_run):
+    return os.path.abspath(os.path.join(get_artifact_path(active_run), os.pardir))
+
+
 def log_val_metrics(cc_loss, epoch, kldiv_loss, nss_loss, sim_loss, execution_time_min):
     metrics = {
         "val--avg--cc_loss": cc_loss.avg.cpu().item(),

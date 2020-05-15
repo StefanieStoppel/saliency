@@ -7,7 +7,8 @@ import matplotlib
 import torch
 import torch.nn as nn
 
-from utils.mlflow_utils import log_val_metrics, log_training_params, setup_mlflow_experiment, get_artifact_path
+from utils.mlflow_utils import log_val_metrics, log_training_params, setup_mlflow_experiment, get_artifact_path, \
+    get_log_path
 
 matplotlib.use('Agg')
 from torch.utils.data import DataLoader
@@ -17,6 +18,18 @@ from simple_net.utils import blur, AverageMeter
 
 import mlflow
 from mlflow import pytorch
+
+import logging
+
+
+def setup_logging(log_file_path):
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", handlers=[
+            logging.FileHandler(log_file_path),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    root_logger = logging.getLogger()
+    return root_logger
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--create_experiment', default=False, type=bool)
@@ -146,7 +159,7 @@ def loss_func(pred_map, gt, fixations, args):
     return loss
 
 
-def train(model, optimizer, loader, epoch, device, loss_type, args):
+def train(model, optimizer, loader, epoch, device, loss_type, args, log_file_path):
     model.train()
     tic = time.time()
 
@@ -170,15 +183,17 @@ def train(model, optimizer, loader, epoch, device, loss_type, args):
         if idx % args.log_interval == (args.log_interval - 1):
             avg_loss = cur_loss / args.log_interval
             mlflow.log_metric(f"train--avg_batch_loss--{loss_type}", avg_loss)
-            print(
+            logger.info(
                 '[{:2d}, {:5d}] train--avg_batch_loss--{} : {:.5f}, time:{:3f} minutes'.format(epoch, idx, loss_type, avg_loss,
                                                                                   (time.time() - tic) / 60))
+            mlflow.log_artifact(log_file_path)
             cur_loss = 0.0
             sys.stdout.flush()
 
     avg_epoch_loss = total_loss / len(loader)
     mlflow.log_metric(f"train--avg_epoch_loss--{loss_type}", avg_epoch_loss)
-    print('[{:2d}, train] train--avg_epoch_loss--{} : {:.5f}'.format(epoch, loss_type, avg_epoch_loss))
+    logger.info('[{:2d}, train] train--avg_epoch_loss--{} : {:.5f}'.format(epoch, loss_type, avg_epoch_loss))
+    mlflow.log_artifact(log_file_path)
     sys.stdout.flush()
 
     return avg_epoch_loss
@@ -210,13 +225,14 @@ def validate(model, loader, epoch, device, args):
 
     execution_time_min = (time.time() - tic) / 60
     log_val_metrics(cc_loss, epoch, kldiv_loss, nss_loss, sim_loss, execution_time_min)
-    print('[{:2d},   val] CC : {:.5f}, KLDIV : {:.5f}, NSS : {:.5f}, SIM : {:.5f}  time:{:3f} minutes'
+    logger.info('[{:2d},   val] CC : {:.5f}, KLDIV : {:.5f}, NSS : {:.5f}, SIM : {:.5f}  time:{:3f} minutes'
           .format(epoch,
                   cc_loss.avg,
                   kldiv_loss.avg,
                   nss_loss.avg,
                   sim_loss.avg,
                   execution_time_min))
+    mlflow.log_artifact(log_file_path)
     sys.stdout.flush()
 
     return cc_loss.avg
@@ -228,8 +244,13 @@ experiment_id, run_name = setup_mlflow_experiment(args)
 with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
     active_run = mlflow.active_run()
     run_id = active_run.info.run_id
-    print(f"Starting run {run_id} of experiment {experiment_id}.")
     artifact_path = get_artifact_path(active_run)
+
+    log_path = get_log_path(active_run)
+    log_file_path = os.path.join(log_path, "train.log")
+
+    logger = setup_logging(log_file_path)
+    logger.info(f"Starting run {run_id} of experiment {experiment_id}.")
 
     loss_type = _get_loss_type_str(args)
     log_training_params(device, loss_type, args)
@@ -247,7 +268,7 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
 
     for epoch in range(0, args.no_epochs):
         loss_type = _get_loss_type_str(args)
-        loss = train(model, optimizer, train_loader, epoch, device, loss_type, args)
+        loss = train(model, optimizer, train_loader, epoch, device, loss_type, args, log_file_path)
 
         with torch.no_grad():
             cc_loss = validate(model, val_loader, epoch, device, args)
@@ -255,18 +276,19 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
                 best_loss = cc_loss
             if best_loss <= cc_loss:
                 best_loss = cc_loss
-                print('[{:2d},  save, {}]'.format(epoch, args.model_val_path))
+                logger.info('[{:2d},  save, {}]'.format(epoch, args.model_val_path))
                 model_name = os.path.basename(args.model_val_path)
                 model_file_name, file_extension = os.path.splitext(model_name)
                 model_path_torch = os.path.join(args.model_val_path, model_file_name, file_extension)
                 model_path_mlflow = os.path.join(artifact_path, model_file_name, file_extension)
                 if torch.cuda.device_count() > 1:
-                    torch.save(model.module.state_dict(), model_path_torch)
+                    torch.save(model.module.state_dict(), args.model_val_path)
                 else:
-                    torch.save(model.state_dict(), args.model_val_path)
+                    torch.save(model.state_dict(), args.args.model_val_path)
                 pytorch.save_model(model, model_path_mlflow)
 
-            print()
+            logger.info()
+            mlflow.log_artifact(log_file_path)
 
         if args.lr_sched:
             scheduler.step()
