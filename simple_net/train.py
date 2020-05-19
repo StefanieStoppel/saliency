@@ -305,7 +305,6 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
                 best_loss = cc_loss
             if best_loss <= cc_loss:
                 best_loss = cc_loss
-                logger.info('[{:2d},  save, {}]'.format(epoch, args.model_val_path))
                 save_model(logger, artifact_path, epoch, args)
 
             logger.info("")
