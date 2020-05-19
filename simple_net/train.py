@@ -14,7 +14,7 @@ matplotlib.use('Agg')
 from torch.utils.data import DataLoader
 from simple_net.dataloader import SaliconDataset, CustomDataset
 from simple_net.loss import *
-from simple_net.utils import blur, AverageMeter
+from simple_net.utils import blur, AverageMeter, plot, plot_img
 
 import mlflow
 from mlflow import pytorch
@@ -56,8 +56,11 @@ parser.add_argument('--batch_size', default=32, type=int)
 parser.add_argument('--log_interval', default=60, type=int)
 parser.add_argument('--no_workers', default=4, type=int)
 parser.add_argument('--model_val_path', default="model.pt", type=str)
+parser.add_argument('--pretrained_model_path', default="/home/steffi/dev/CV2/saliency/saved_models/salicon_densenet.pt", type=str)
 
 args = parser.parse_args()
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 if args.enc_model == "pnas":
     print("PNAS Model")
@@ -70,6 +73,14 @@ elif args.enc_model == "densenet":
     from simple_net.model import DenseModel
 
     model = DenseModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
+
+elif args.enc_model == "salicon_densenet":
+    print("Salicon DenseNet Model")
+    from simple_net.model import DenseModel
+    model = DenseModel()
+    model = nn.DataParallel(model)
+    model.load_state_dict(torch.load(args.pretrained_model_path))
+    model = model.to(device)
 
 elif args.enc_model == "resnet":
     print("ResNet Model")
@@ -89,7 +100,6 @@ elif args.enc_model == "mobilenet":
 
     model = MobileNetV2(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if torch.cuda.device_count() > 1:
     print("Let's use", torch.cuda.device_count(), "GPUs!")
     model = nn.DataParallel(model)
@@ -130,13 +140,18 @@ def setup_logging(log_file_path):
 
 
 def save_model(logger, artifact_path, epoch, args):
-    model_name = f"{epoch}/{os.path.basename(args.model_val_path)}"
-    model_path = os.path.join(artifact_path, model_name)
-    logger.info(f"Saving model to {model_path}.")
+    # model_name = f"{epoch}/{os.path.basename(args.model_val_path)}"
+    epoch_path = os.path.join(artifact_path, str(epoch))
+    os.makedirs(epoch_path, exist_ok=True)
+    model_path = os.path.join(epoch_path, f"{args.enc_model}.pt")
     if torch.cuda.device_count() > 1:
-        pytorch.log_model(model, model_name)
+        logger.info(f"Saving model to {model_path} using .module.")
+        torch.save(model.module.state_dict(), model_path)
+        # pytorch.log_model(model, model_name)
     else:
-        pytorch.log_model(model, model_name)
+        logger.info(f"Saving model to {model_path} normally.")
+        torch.save(model.state_dict(), model_path)
+        # pytorch.log_model(model, model_name)
 
 
 def _get_loss_type_str(args):

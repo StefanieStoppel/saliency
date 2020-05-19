@@ -20,6 +20,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--custom_loader', default=True, type=bool)
 parser.add_argument('--val_img_dir', default="./images/", type=str)
+parser.add_argument('--mlflow_model', default=False, type=bool)
 parser.add_argument('--model_val_path', default="./saved_models/salicon_pnas.pt", type=str)
 parser.add_argument('--no_workers', default=4, type=int)
 parser.add_argument('--enc_model', default="pnas", type=str)
@@ -37,7 +38,7 @@ if args.enc_model == "pnas":
     from simple_net.model import PNASModel
     model = PNASModel()
 
-elif args.enc_model == "densenet":
+elif args.enc_model == "densenet" or args.enc_model == "salicon_densenet":
     print("DenseNet Model")
     from simple_net.model import DenseModel
     model = DenseModel()
@@ -57,12 +58,19 @@ elif args.enc_model == "mobilenet":
     from simple_net.model import MobileNetV2
     model = MobileNetV2()
 
-if args.enc_model != "mobilenet" and torch.cuda.device_count() > 1:
-    model = nn.DataParallel(model)
+# if args.enc_model != "mobilenet" and torch.cuda.device_count() > 1:
+model = nn.DataParallel(model)
 
-pytorch.load_model(args.model_val_path)
-
-# model.load_state_dict(torch.load(args.model_val_path))
+if args.mlflow_model:
+    print("Loading model using mlflow.")
+    pytorch.load_model(args.model_val_path)
+else:
+    print("Loading model normally.")
+    state_dict = torch.load(args.model_val_path)
+    if isinstance(state_dict, torch.nn.DataParallel):
+        state_dict = state_dict.module
+    # n_state_dict = remove_module(state_dict)
+    model.load_state_dict(state_dict)
 
 model = model.to(device)
 
@@ -82,7 +90,6 @@ def validate(model, loader, device, args):
     for (img, gt, fixations) in tqdm(loader):
         img = img.to(device)
         gt = gt.to(device)
-        fixations = fixations.to(device)
 
         pred_map = model(img)
 
@@ -106,9 +113,9 @@ def validate(model, loader, device, args):
 
 
 if args.validate:
-    val_img_dir = args.dataset_dir + "images/val/"
-    val_gt_dir = args.dataset_dir + "maps/val/"
-    val_fix_dir = args.dataset_dir + "fixations/val/"
+    val_img_dir = os.path.join(args.dataset_dir, "images/val/")
+    val_gt_dir = os.path.join(args.dataset_dir, "maps/val/")
+    val_fix_dir = os.path.join(args.dataset_dir, "fixations/val/")
 
     val_img_ids = [nm.split(".")[0] for nm in os.listdir(val_img_dir)]
     if args.custom_loader:

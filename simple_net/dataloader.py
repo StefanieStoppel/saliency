@@ -67,12 +67,12 @@ class CustomDataset(DataLoader):
         img_id = self.img_ids[idx]
         # saliency maps are called fixations here,
         # while fixations are color image overlayed with saliency map
-        gt_id = img_id.replace("image", "map")  # /maps                 -- gt => maps
-        fix_id = img_id.replace("image", "fixation")  # /fixations      -- fix => fixations
+        gt_id = img_id.replace("image", "fixation")  # /maps                 -- gt => maps
+        fix_id = img_id.replace("image", "map")  # /fixations      -- fix => fixations
 
         img_path = os.path.join(self.img_dir, img_id + self.exten)
-        gt_path = os.path.join(self.fix_dir, gt_id + self.exten)
-        fix_path = os.path.join(self.gt_dir, fix_id + self.exten)
+        gt_path = os.path.join(self.gt_dir, gt_id + self.exten)
+        fix_path = os.path.join(self.fix_dir, fix_id + self.exten)
 
         img = Image.open(img_path).convert('RGB')
         gt = np.array(Image.open(gt_path).convert('L'))
@@ -99,9 +99,7 @@ class TestLoader(DataLoader):
         self.img_ids = img_ids
         self.img_transform = transforms.Compose([
             transforms.Resize((256, 256)),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5],
-                                [0.5, 0.5, 0.5])
+            transforms.ToTensor()
         ])    
         
     def __getitem__(self, idx):
@@ -110,6 +108,7 @@ class TestLoader(DataLoader):
         img = Image.open(img_path).convert('RGB')
         sz = img.size
         img = self.img_transform(img)
+        # plot_img(img, f"./debug_images/test__getitem__{idx}")
         return img, img_id, sz
     
     def __len__(self):
