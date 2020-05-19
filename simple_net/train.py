@@ -26,6 +26,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--create_experiment', default=False, type=bool)
 parser.add_argument('--experiment_name', default="", type=str)
 parser.add_argument('--custom_loader', default=True, type=bool)
+parser.add_argument('--checkpoint_path', default="", type=str)
 parser.add_argument('--no_epochs', default=40, type=int)
 parser.add_argument('--lr', default=1e-4, type=float)
 parser.add_argument('--kldiv', default=True, type=bool)
@@ -61,6 +62,17 @@ parser.add_argument('--pretrained_model_path', default="/home/steffi/dev/CV2/sal
 args = parser.parse_args()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+def load_checkpoint(checkpoint_path):
+    checkpoint = torch.load(checkpoint_path)
+    model_state_dict = checkpoint['model_state_dict']
+    optimizer_state_dict = checkpoint['optimizer_state_dict']
+    epoch = checkpoint['epoch']
+    train_loss = checkpoint['train_loss']
+    val_loss = checkpoint['val_loss']
+    return model_state_dict, optimizer_state_dict, epoch, train_loss, val_loss
+
 
 if args.enc_model == "pnas":
     print("PNAS Model")
@@ -150,8 +162,8 @@ def create_checkpoint(model, optimizer, avg_train_loss_epoch, val_loss, logger, 
         state_dict = model.module.state_dict()
     checkpoint = {
         'epoch': epoch,
-        'modelstatedict': state_dict,
-        'optimizerstatedict': optimizer.state_dict(),
+        'model_state_dict': state_dict,
+        'optimizer_state_dict': optimizer.state_dict(),
         'train_loss': avg_train_loss_epoch,
         'val_loss': val_loss
     }
@@ -234,7 +246,6 @@ def train(model, optimizer, loader, epoch, device,
                 '[{:2d}, {:5d}] train--avg_batch_loss--{} : {:.5f}, time:{:3f} minutes'.format(epoch, idx, loss_type, avg_loss,
                                                                                   (time.time() - tic) / 60))
             mlflow.log_artifact(log_file_path)
-            # save_model(logger, artifact_path, epoch, args)
             cur_loss = 0.0
             sys.stdout.flush()
 
@@ -314,8 +325,17 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
     if args.lr_sched:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
 
-    for epoch in range(0, args.no_epochs):
+    start_epoch = 0
+    # load checkpoint
+    if len(args.checkpoint_path) > 0:
+        model_state_dict, optimizer_state_dict, start_epoch, train_loss, val_loss = load_checkpoint(args.checkpoint_path)
+        model.load_state_dict(model_state_dict)
+        optimizer.load_state_dict(optimizer_state_dict)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+
+    for epoch in range(start_epoch, args.no_epochs):
         loss_type = _get_loss_type_str(args)
+
         loss = train(model, optimizer, train_loader, epoch, device,
                      loss_type, args, log_file_path, logger, artifact_path)
 
@@ -325,7 +345,6 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
                 best_loss = cc_loss
             if best_loss <= cc_loss:
                 best_loss = cc_loss
-                # save_model(logger, artifact_path, epoch, args)
 
             create_checkpoint(model, optimizer, loss, cc_loss, logger, artifact_path, epoch, args)
 
@@ -334,5 +353,3 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
 
         if args.lr_sched:
             scheduler.step()
-
-# todo: add training steps to log
