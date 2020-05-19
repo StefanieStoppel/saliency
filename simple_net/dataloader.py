@@ -56,11 +56,15 @@ class CustomDataset(DataLoader):
         self.fix_dir = fix_dir
         self.img_ids = img_ids
         self.exten = exten
+        self.norm_orig = transforms.Normalize([0.5, 0.5, 0.5],  # used before
+                                              [0.5, 0.5, 0.5])
+        self.norm = transforms.Normalize(mean=[0.485, 0.456, 0.406],  # used now, see ex. 5
+                                         std=[0.229, 0.224, 0.225])
         self.img_transform = transforms.Compose([
             transforms.Resize((256, 256)),
             transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5],
-                                 [0.5, 0.5, 0.5])
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
         ])
 
     def __getitem__(self, idx):
@@ -88,7 +92,6 @@ class CustomDataset(DataLoader):
         # assert np.min(fixations) == 0.0 and np.max(fixations) == 1.0
         return img, torch.FloatTensor(gt), torch.FloatTensor(fixations)
 
-
     def __len__(self):
         return len(self.img_ids)
 
@@ -97,11 +100,15 @@ class TestLoader(DataLoader):
     def __init__(self, img_dir, img_ids):
         self.img_dir = img_dir
         self.img_ids = img_ids
+        self.norm_orig = transforms.Normalize([0.5, 0.5, 0.5],  # used before
+                                              [0.5, 0.5, 0.5])
+        self.norm = transforms.Normalize(mean=[0.485, 0.456, 0.406],  # used now, see ex. 5
+                                         std=[0.229, 0.224, 0.225])
         self.img_transform = transforms.Compose([
             transforms.Resize((256, 256)),
             transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5],
-                                 [0.5, 0.5, 0.5])
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],  # used now, see ex. 5
+                                 std=[0.229, 0.224, 0.225])
         ])    
         
     def __getitem__(self, idx):
