@@ -99,7 +99,9 @@ class TestLoader(DataLoader):
         self.img_ids = img_ids
         self.img_transform = transforms.Compose([
             transforms.Resize((256, 256)),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize([0.5, 0.5, 0.5],
+                                 [0.5, 0.5, 0.5])
         ])    
         
     def __getitem__(self, idx):
