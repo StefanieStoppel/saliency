@@ -2,24 +2,21 @@ import argparse
 import os
 import sys
 import time
-
 import matplotlib
 import torch
 import torch.nn as nn
+import mlflow
+import logging
 
+from torch.utils.data import DataLoader
+from simple_net.dataloader import SaliconDataset, CustomDataset
+from simple_net.loss import *
+from simple_net.utils import blur, AverageMeter
+from checkpoint_utils import load_checkpoint, create_checkpoint
 from utils.mlflow_utils import log_val_metrics, log_training_params, setup_mlflow_experiment, get_artifact_path, \
     get_log_path
 
 matplotlib.use('Agg')
-from torch.utils.data import DataLoader
-from simple_net.dataloader import SaliconDataset, CustomDataset
-from simple_net.loss import *
-from simple_net.utils import blur, AverageMeter, plot, plot_img
-
-import mlflow
-from mlflow import pytorch
-
-import logging
 
 
 parser = argparse.ArgumentParser()
@@ -27,12 +24,13 @@ parser.add_argument('--create_experiment', default=False, type=bool)
 parser.add_argument('--experiment_name', default="", type=str)
 parser.add_argument('--custom_loader', default=True, type=bool)
 parser.add_argument('--checkpoint_path', default="", type=str)
+parser.add_argument('--fine_tune', default=True, type=bool)
 parser.add_argument('--no_epochs', default=40, type=int)
 parser.add_argument('--lr', default=1e-4, type=float)
-parser.add_argument('--kldiv', default=True, type=bool)
+parser.add_argument('--kldiv', default=False, type=bool)
 parser.add_argument('--cc', default=False, type=bool)
 parser.add_argument('--nss', default=False, type=bool)
-parser.add_argument('--sim', default=False, type=bool)
+parser.add_argument('--sim', default=True, type=bool)
 parser.add_argument('--nss_emlnet', default=False, type=bool)
 parser.add_argument('--nss_norm', default=False, type=bool)
 parser.add_argument('--l1', default=False, type=bool)
@@ -63,17 +61,6 @@ args = parser.parse_args()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
-def load_checkpoint(checkpoint_path):
-    checkpoint = torch.load(checkpoint_path)
-    model_state_dict = checkpoint['model_state_dict']
-    optimizer_state_dict = checkpoint['optimizer_state_dict']
-    epoch = checkpoint['epoch']
-    train_loss = checkpoint['train_loss']
-    val_loss = checkpoint['val_loss']
-    return model_state_dict, optimizer_state_dict, epoch, train_loss, val_loss
-
-
 if args.enc_model == "pnas":
     print("PNAS Model")
     from simple_net.model import PNASModel
@@ -87,11 +74,22 @@ elif args.enc_model == "densenet":
     model = DenseModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
 
 elif args.enc_model == "salicon_densenet":
-    print("Salicon DenseNet Model")
+    print("Training existing Salicon DenseNet Model")
     from simple_net.model import DenseModel
     model = DenseModel()
     model = nn.DataParallel(model)
     model.load_state_dict(torch.load(args.pretrained_model_path))
+    if args.fine_tune:
+        print("Finetuning only deconv_layer5.")
+        for param in model.parameters():
+            param.requires_grad = False
+        model.module.deconv_layer5 = nn.Sequential(
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.2),
+            nn.Conv2d(in_channels=128, out_channels=1, kernel_size=3, padding=1, bias=True),
+            nn.Sigmoid()
+        )
     model = model.to(device)
 
 elif args.enc_model == "resnet":
@@ -149,41 +147,6 @@ def setup_logging(log_file_path):
     )
     root_logger = logging.getLogger()
     return root_logger
-
-
-def create_checkpoint(model, optimizer, avg_train_loss_epoch, val_loss, logger, artifact_path, epoch, args):
-    checkpoint_path = os.path.join(artifact_path, f"checkpoints/{epoch}")
-    os.makedirs(checkpoint_path, exist_ok=True)
-    model_path = os.path.join(checkpoint_path, f"{args.enc_model}.pt")
-    log_message = f"Saving model to {model_path} normally."
-    state_dict = model.state_dict()
-    if torch.cuda.device_count() > 1:
-        log_message = f"Saving checkpoint to {model_path} using .module."
-        state_dict = model.module.state_dict()
-    checkpoint = {
-        'epoch': epoch,
-        'model_state_dict': state_dict,
-        'optimizer_state_dict': optimizer.state_dict(),
-        'train_loss': avg_train_loss_epoch,
-        'val_loss': val_loss
-    }
-    logger.info(log_message)
-    torch.save(checkpoint, model_path)
-
-
-def save_model(logger, artifact_path, epoch, args):
-    # model_name = f"{epoch}/{os.path.basename(args.model_val_path)}"
-    epoch_path = os.path.join(artifact_path, str(epoch))
-    os.makedirs(epoch_path, exist_ok=True)
-    model_path = os.path.join(epoch_path, f"{args.enc_model}.pt")
-    if torch.cuda.device_count() > 1:
-        logger.info(f"Saving model to {model_path} using .module.")
-        torch.save(model.module.state_dict(), model_path)
-        # pytorch.log_model(model, model_name)
-    else:
-        logger.info(f"Saving model to {model_path} normally.")
-        torch.save(model.state_dict(), model_path)
-        # pytorch.log_model(model, model_name)
 
 
 def _get_loss_type_str(args):
@@ -315,6 +278,8 @@ with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
     log_training_params(device, loss_type, args)
 
     params = list(filter(lambda p: p.requires_grad, model.parameters()))
+    trainable_params = sum([np.prod(p.size()) for p in params])
+    logging.info(f"Training {trainable_params} model parameters.")
 
     if args.optim == "Adam":
         optimizer = torch.optim.Adam(params, lr=args.lr)

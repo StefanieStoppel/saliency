@@ -5,6 +5,8 @@ import time
 
 import matplotlib
 
+from checkpoint_utils import load_checkpoint
+
 matplotlib.use('Agg')
 from torch.utils.data import DataLoader
 import torch
@@ -66,11 +68,10 @@ if args.mlflow_model:
     pytorch.load_model(args.model_val_path)
 else:
     print("Loading model normally.")
-    state_dict = torch.load(args.model_val_path)
-    if isinstance(state_dict, torch.nn.DataParallel):
-        state_dict = state_dict.module
-    # n_state_dict = remove_module(state_dict)
-    model.load_state_dict(state_dict)
+    model_state_dict, _, _, _, _ = load_checkpoint(args.model_val_path)
+    if isinstance(model_state_dict, torch.nn.DataParallel):
+        state_dict = model_state_dict.module
+    model.load_state_dict(model_state_dict)
 
 model = model.to(device)
 
