@@ -8,11 +8,10 @@ import torch.nn as nn
 import mlflow
 import logging
 
-from torch.utils.data import DataLoader
-from simple_net.dataloader import SaliconDataset, CustomDataset
 from simple_net.loss import *
 from simple_net.utils import blur, AverageMeter
 from checkpoint_utils import load_checkpoint, create_checkpoint
+from training_utils import get_data_loaders
 from utils.mlflow_utils import log_val_metrics, log_training_params, setup_mlflow_experiment, get_artifact_path, \
     get_log_path
 
@@ -26,6 +25,7 @@ parser.add_argument('--checkpoint_path', default="", type=str)
 parser.add_argument('--fine_tune', default=False, type=bool)
 parser.add_argument('--no_epochs', default=40, type=int)
 parser.add_argument('--lr', default=1e-4, type=float)
+parser.add_argument('--weight_decay', default=1e-4, type=float)
 parser.add_argument('--kldiv', default=True, type=bool)
 parser.add_argument('--cc', default=False, type=bool)
 parser.add_argument('--nss', default=False, type=bool)
@@ -110,28 +110,6 @@ if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 model.to(device)
 
-train_img_dir = os.path.join(args.dataset_dir, "images/train/")
-train_gt_dir = os.path.join(args.dataset_dir, "maps/train/")  # black white
-train_fix_dir = os.path.join(args.dataset_dir, "fixations/train/")  # color with maps overlayed
-
-val_img_dir = os.path.join(args.dataset_dir, "images/val/")
-val_gt_dir = os.path.join(args.dataset_dir, "maps/val/")
-val_fix_dir = os.path.join(args.dataset_dir, "fixations/val/")
-
-
-train_img_ids = [nm.split(".")[0] for nm in os.listdir(train_img_dir)]
-val_img_ids = [nm.split(".")[0] for nm in os.listdir(val_img_dir)]
-
-if args.custom_loader:
-    train_dataset = CustomDataset(train_img_dir, train_gt_dir, train_fix_dir, train_img_ids)
-    val_dataset = CustomDataset(val_img_dir, val_gt_dir, val_fix_dir, val_img_ids)
-else:
-    train_dataset = SaliconDataset(train_img_dir, train_gt_dir, train_fix_dir, train_img_ids)
-    val_dataset = SaliconDataset(val_img_dir, val_gt_dir, val_fix_dir, val_img_ids)
-
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
-                                           num_workers=args.no_workers)
-val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.no_workers)
 
 
 def setup_logging(log_file_path):
@@ -259,29 +237,34 @@ def validate(model, loader, epoch, device, args):
 experiment_id, run_name = setup_mlflow_experiment(args)
 
 with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
+    # mlflow run infos & paths
     active_run = mlflow.active_run()
     run_id = active_run.info.run_id
     artifact_path = get_artifact_path(active_run)
 
+    # logging
     log_path = get_log_path(active_run)
     log_file_path = os.path.join(log_path, "train.log")
-
     logger = setup_logging(log_file_path)
     logger.info(f"Starting run {run_id} of experiment {experiment_id}.")
 
+    # log training params to mlflow
     loss_type = _get_loss_type_str(args)
     log_training_params(device, loss_type, args)
+
+    # dataset loaders
+    train_loader, val_loader = get_data_loaders(args.dataset_dir, args.custom_loader, args.batch_size, args.no_workers)
 
     params = list(filter(lambda p: p.requires_grad, model.parameters()))
     trainable_params = sum([np.prod(p.size()) for p in params])
     logging.info(f"Training {trainable_params} model parameters.")
 
     if args.optim == "Adam":
-        optimizer = torch.optim.Adam(params, lr=args.lr)
+        optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
     if args.optim == "Adagrad":
-        optimizer = torch.optim.Adagrad(params, lr=args.lr)
+        optimizer = torch.optim.Adagrad(params, lr=args.lr, weight_decay=args.weight_decay)
     if args.optim == "SGD":
-        optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9)
+        optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
     if args.lr_sched:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
 
