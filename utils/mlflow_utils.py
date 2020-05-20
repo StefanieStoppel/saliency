@@ -12,15 +12,13 @@ def sync_neptune():
 
 def setup_mlflow_experiment(args):
     run_id = str(time.time()).split('.')[0]
-    if (args.create_experiment and not args.experiment_name) or (not args.create_experiment and not args.experiment_name):
-        print("ERROR: Experiment name not provided. Exiting.")
-        sys.exit(1)
-    if not args.create_experiment and args.experiment_name:
-        mlflow.set_experiment(args.experiment_name)
-        experiment = mlflow.get_experiment_by_name(args.experiment_name)
-        experiment_id = experiment.experiment_id
-    if args.create_experiment and args.experiment_name:
-        experiment_id = mlflow.create_experiment(args.experiment_name)
+    experiment_name = args.experiment_name
+    experiment = mlflow.get_experiment_by_name(experiment_name)
+    if experiment is None:
+        mlflow.create_experiment(experiment_name)
+        experiment = mlflow.get_experiment_by_name(experiment_name)
+    mlflow.set_experiment(experiment_name)
+    experiment_id = experiment.experiment_id
     return experiment_id, run_id
 
 
