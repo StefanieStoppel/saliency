@@ -84,8 +84,8 @@ elif args.enc_model == "salicon_densenet":
             param.requires_grad = False
         model.module.deconv_layer5 = nn.Sequential(
             nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1, bias=True),
+            nn.Dropout2d(p=0.2),
             nn.ReLU(inplace=True),
-            nn.Dropout(p=0.2),
             nn.Conv2d(in_channels=128, out_channels=1, kernel_size=3, padding=1, bias=True),
             nn.Sigmoid()
         )
