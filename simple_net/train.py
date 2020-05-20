@@ -23,7 +23,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--experiment_name', default="", type=str)
 parser.add_argument('--custom_loader', default=True, type=bool)
 parser.add_argument('--checkpoint_path', default="", type=str)
-parser.add_argument('--fine_tune', default=True, type=bool)
+parser.add_argument('--fine_tune', default=False, type=bool)
 parser.add_argument('--no_epochs', default=40, type=int)
 parser.add_argument('--lr', default=1e-4, type=float)
 parser.add_argument('--kldiv', default=True, type=bool)
@@ -80,15 +80,11 @@ elif args.enc_model == "salicon_densenet":
     model.load_state_dict(torch.load(args.pretrained_model_path))
     if args.fine_tune:
         print("Finetuning only deconv_layer5.")
-        for param in model.parameters():
-            param.requires_grad = False
-        model.module.deconv_layer5 = nn.Sequential(
-            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1, bias=True),
-            nn.Dropout2d(p=0.2),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=128, out_channels=1, kernel_size=3, padding=1, bias=True),
-            nn.Sigmoid()
-        )
+        layers = ["deconv_layer5", "deconv_layer4", "deconv_layer3", "deconv_layer2", "deconv_layer1"]
+        print(f"Finetuning layers: {layers}")
+        for name, param in model.named_parameters():
+            if not any(layer in name for layer in layers):
+                param.requires_grad = False
     model = model.to(device)
 
 elif args.enc_model == "resnet":
