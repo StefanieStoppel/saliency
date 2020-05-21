@@ -2,6 +2,7 @@ import os
 import random
 
 import cv2
+import imutils
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import exposure
@@ -93,47 +94,61 @@ def _read_images(image_paths):
     return [cv2.imread(image_path) for image_path in image_paths]
 
 
-def _flip_images_lr(images):
+def _flip_images_lr(images: list):
     return (cv2.flip(image, 1) for image in images)
 
 
-def _add_flipped_to_img_paths(img_path, fix_path, map_path):
+def _add_suffix_to_img_paths(image_paths, suffix):
     ext = ".png"
-    img = f"{os.path.splitext(img_path)[0]}_flipped{ext}"
-    fix = f"{os.path.splitext(fix_path)[0]}_flipped{ext}"
-    map_ = f"{os.path.splitext(map_path)[0]}_flipped{ext}"
-    return img, fix, map_
+    flipped_image_paths = (f"{os.path.splitext(img_path)[0]}_{suffix}{ext}" for img_path in image_paths)
+    return flipped_image_paths
 
 
-def _save_flipped_images(flipped_images, flipped_img_paths):
-    for fl_img, fl_img_path in zip(flipped_images, flipped_img_paths):
-        # print(fl_img_path)
-        cv2.imwrite(fl_img_path, fl_img)
+def _save_augmented_images(augmented_images, augmented_img_paths):
+    for img, img_path in zip(augmented_images, augmented_img_paths):
+        print(img_path)
+        cv2.imwrite(img_path, img)
 
 
 def _should_be_flipped(p):
     return random.random() > p
 
 
-def _flip_images(img_path, fixation_path, map_path):
-    images = _read_images([img_path, fixation_path, map_path])
+def _flip_images(images: list, image_paths: list):
     flipped_images = _flip_images_lr(images)
-    flipped_image_paths = _add_flipped_to_img_paths(img_path, fixation_path, map_path)
-    _save_flipped_images(flipped_images, flipped_image_paths)
+    flipped_image_paths = _add_suffix_to_img_paths(image_paths, "flipped")
+    _save_augmented_images(flipped_images, flipped_image_paths)
 
 
-def augment_data(data_path="/home/steffi/dev/CV2/data_copy", p=0.5):
+def _rotate_images_by_angle(images: list, angle):
+    return (imutils.rotate(image, angle) for image in images)
+
+
+def _rotate_images(images: list, image_paths: list, max_angle=15):
+    angle = abs(max_angle)
+    random_angle = random.randint(-angle, angle)
+    rotated_images = _rotate_images_by_angle(images, random_angle)
+    rotated_image_paths = _add_suffix_to_img_paths(image_paths, f"rotated_{random_angle}")
+    _save_augmented_images(rotated_images, rotated_image_paths)
+
+
+def augment_data(data_path="/home/steffi/dev/CV2/data_copy", p=0.5, max_angle=15):
     # paths for training images, fixations and maps
     train_img_paths, train_fixation_paths, train_map_paths = _create_path_lists(data_path,
                                                                                 image_txt_file="train_images.txt",
                                                                                 fixation_txt_file="train_fixations.txt")
     flipped_counter = 0
     for img_path, fixation_path, map_path in zip(train_img_paths, train_fixation_paths, train_map_paths):
+        image_paths = [img_path, fixation_path, map_path]
+        images = _read_images(image_paths)
         if _should_be_flipped(p):
-            _flip_images(img_path, fixation_path, map_path)
+            _flip_images(images, image_paths)
             flipped_counter += 1
+        else:
+            _rotate_images(images, image_paths, max_angle=max_angle)
 
-    print(flipped_counter)
+    print(f"Number of flipped images: {flipped_counter}")
+    print(f"Number of rotated images: {len(train_img_paths) - flipped_counter}")
 
 
 if __name__ == "__main__":
