@@ -71,8 +71,8 @@ class CustomDataset(DataLoader):
         img_id = self.img_ids[idx]
         # saliency maps are called fixations here,
         # while fixations are color image overlayed with saliency map
-        gt_id = img_id.replace("image", "fixation")  # /maps                 -- gt => maps
-        fix_id = img_id.replace("image", "map")  # /fixations      -- fix => fixations
+        gt_id = img_id.replace("image", "map")  # /maps                 -- gt => maps
+        fix_id = img_id.replace("image", "fixation")  # /fixations      -- fix => fixations
 
         img_path = os.path.join(self.img_dir, img_id + self.exten)
         gt_path = os.path.join(self.gt_dir, gt_id + self.exten)
