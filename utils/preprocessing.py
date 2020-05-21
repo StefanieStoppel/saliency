@@ -1,9 +1,18 @@
 import os
+import random
 
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import exposure
+
+
+def rename_files(path, src_str, target_str):
+    for filename in os.listdir(path):
+        f_name = filename.replace(src_str, target_str)
+        source = os.path.join(path, filename)
+        target = os.path.join(path, f_name)
+        os.rename(source, target)
 
 
 def create_saliency_map(input_img, fixation_img, output_img):
@@ -80,5 +89,53 @@ def create_heatmap_overlays_from_data(data_path="/home/steffi/dev/CV2/data"):
     _create_heatmap_overlays(train_img_paths, train_fixation_paths, train_map_pathlist)
 
 
+def _read_images(image_paths):
+    return [cv2.imread(image_path) for image_path in image_paths]
+
+
+def _flip_images_lr(images):
+    return (cv2.flip(image, 1) for image in images)
+
+
+def _add_flipped_to_img_paths(img_path, fix_path, map_path):
+    ext = ".png"
+    img = f"{os.path.splitext(img_path)[0]}_flipped{ext}"
+    fix = f"{os.path.splitext(fix_path)[0]}_flipped{ext}"
+    map_ = f"{os.path.splitext(map_path)[0]}_flipped{ext}"
+    return img, fix, map_
+
+
+def _save_flipped_images(flipped_images, flipped_img_paths):
+    for fl_img, fl_img_path in zip(flipped_images, flipped_img_paths):
+        # print(fl_img_path)
+        cv2.imwrite(fl_img_path, fl_img)
+
+
+def _should_be_flipped(p):
+    return random.random() > p
+
+
+def _flip_images(img_path, fixation_path, map_path):
+    images = _read_images([img_path, fixation_path, map_path])
+    flipped_images = _flip_images_lr(images)
+    flipped_image_paths = _add_flipped_to_img_paths(img_path, fixation_path, map_path)
+    _save_flipped_images(flipped_images, flipped_image_paths)
+
+
+def augment_data(data_path="/home/steffi/dev/CV2/data_copy", p=0.5):
+    # paths for training images, fixations and maps
+    train_img_paths, train_fixation_paths, train_map_paths = _create_path_lists(data_path,
+                                                                                image_txt_file="train_images.txt",
+                                                                                fixation_txt_file="train_fixations.txt")
+    flipped_counter = 0
+    for img_path, fixation_path, map_path in zip(train_img_paths, train_fixation_paths, train_map_paths):
+        if _should_be_flipped(p):
+            _flip_images(img_path, fixation_path, map_path)
+            flipped_counter += 1
+
+    print(flipped_counter)
+
+
 if __name__ == "__main__":
-    create_heatmap_overlays_from_data()
+    # create_heatmap_overlays_from_data()
+    augment_data()
