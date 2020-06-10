@@ -108,6 +108,8 @@ class DenseModel(nn.Module):
         for param in self.dense.parameters():
             param.requires_grad = train_enc
 
+        self.dropout_layer = nn.Dropout2d(p=0.5)
+
         self.linear_upsampling = nn.UpsamplingBilinear2d(scale_factor=2)
         self.conv_layer0 = nn.Sequential(*list(self.dense)[:3])
         self.conv_layer1 = nn.Sequential(
@@ -183,17 +185,24 @@ class DenseModel(nn.Module):
         out5 = self.deconv_layer0(out5)
 
         x = torch.cat((out5,out4), 1)
+        x = self.dropout_layer(x)
         x = self.deconv_layer1(x)
 
         x = torch.cat((x,out3), 1)
+        x = self.dropout_layer(x)
         x = self.deconv_layer2(x)
 
         x = torch.cat((x,out2), 1)
+        x = self.dropout_layer(x)
         x = self.deconv_layer3(x)
         
         x = torch.cat((x,out1), 1)
+        x = self.dropout_layer(x)
         x = self.deconv_layer4(x)
+
+        x = self.dropout_layer(x)
         x = self.deconv_layer5(x)
+
         x = x.squeeze(1)
         return x
 
