@@ -24,7 +24,7 @@ parser.add_argument('--custom_loader', default=True, type=bool)
 parser.add_argument('--checkpoint_path', default="", type=str)
 parser.add_argument('--fine_tune', default=False, type=bool)
 parser.add_argument('--no_epochs', default=40, type=int)
-parser.add_argument('--lr', default=1e-4, type=float)
+parser.add_argument('--lr', default=1e-3, type=float)
 parser.add_argument('--weight_decay', default=1e-4, type=float)
 parser.add_argument('--kldiv', default=True, type=bool)
 parser.add_argument('--cc', default=False, type=bool)
@@ -80,7 +80,7 @@ elif args.enc_model == "salicon_densenet":
     model.load_state_dict(torch.load(args.pretrained_model_path))
     if args.fine_tune:
         print("Finetuning only deconv_layer5.")
-        layers = ["deconv_layer5", "deconv_layer4"]
+        layers = ["deconv_layer5"]
         print(f"Finetuning layers: {layers}")
         for name, param in model.named_parameters():
             if not any(layer in name for layer in layers):
