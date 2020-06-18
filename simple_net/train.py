@@ -59,58 +59,9 @@ def parse_arguments():
     parser.add_argument('--pretrained_model_path',
                         default="/home/steffi/dev/CV2/saliency/saved_models/salicon_densenet.pt", type=str)
 
-    return parser.parse_args()
-
-#
-# if args.enc_model == "pnas":
-#     print("PNAS Model")
-#     from simple_net.model import PNASModel
-#
-#     model = PNASModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-#
-# elif args.enc_model == "densenet":
-#     print("DenseNet Model")
-#     from simple_net.model import DenseModel
-#
-#     model = DenseModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-#
-# elif args.enc_model == "salicon_densenet":
-#     print("Training existing Salicon DenseNet Model")
-#     from simple_net.model import DenseModel
-#     model = DenseModel()
-#     model = nn.DataParallel(model)
-#     model.load_state_dict(torch.load(args.pretrained_model_path))
-#     if args.fine_tune:
-#         print("Finetuning only deconv_layer5.")
-#         layers = ["deconv_layer5"]
-#         print(f"Finetuning layers: {layers}")
-#         for name, param in model.named_parameters():
-#             if not any(layer in name for layer in layers):
-#                 param.requires_grad = False
-#     model = model.to(device)
-#
-# elif args.enc_model == "resnet":
-#     print("ResNet Model")
-#     from simple_net.model import ResNetModel
-#
-#     model = ResNetModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-#
-# elif args.enc_model == "vgg":
-#     print("VGG Model")
-#     from simple_net.model import VGGModel
-#
-#     model = VGGModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-#
-# elif args.enc_model == "mobilenet":
-#     print("Mobile NetV2")
-#     from simple_net.model import MobileNetV2
-#
-#     model = MobileNetV2(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-#
-# if torch.cuda.device_count() > 1:
-#     print("Let's use", torch.cuda.device_count(), "GPUs!")
-#     model = nn.DataParallel(model)
-# model.to(device)
+    args = parser.parse_args()
+    print(f"args: {args}")
+    return args
 
 
 def setup_logging(log_file_path):
@@ -138,24 +89,24 @@ def _get_loss_type_str(args):
     return loss_type
 
 
-def loss_func(pred_map, gt, fixations, args):
+def loss_func(pred_map, gt, fixations, loss_type, args):
     loss = torch.FloatTensor([0.0]).cuda()
     criterion = nn.L1Loss()
-    if args.kldiv:
+    if loss_type == "kldiv":
         loss += args.kldiv_coeff * kldiv(pred_map, gt)
-    if args.cc:
+    if loss_type == "cc":
         loss += args.cc_coeff * cc(pred_map, gt)
-    if args.nss:
+    if loss_type == "nss":
         loss += args.nss_coeff * nss(pred_map, fixations)
-    if args.l1:
+    if loss_type == "l1":
         loss += args.l1_coeff * criterion(pred_map, gt)
-    if args.sim:
+    if loss_type == "sim":
         loss += args.sim_coeff * similarity(pred_map, gt)
     return loss
 
 
 def train(model, optimizer, loader, epoch, device,
-          loss_type, args, log_file_path, logger, artifact_path):
+          loss_type, args, log_file_path, logger):
     model.train()
     tic = time.time()
 
@@ -170,7 +121,7 @@ def train(model, optimizer, loader, epoch, device,
         optimizer.zero_grad()
         pred_map = model(img)
         assert pred_map.size() == gt.size()
-        loss = loss_func(pred_map, gt, fixations, args)
+        loss = loss_func(pred_map, gt, fixations, loss_type, args)
         loss.backward()
         total_loss += loss.item()
         cur_loss += loss.item()
@@ -320,7 +271,7 @@ def objective(trial, args=None):
 
         for epoch in range(start_epoch, args.no_epochs):
             loss = train(model, optimizer, train_loader, epoch, device,
-                         loss_type, args, log_file_path, logger, artifact_path)
+                         loss_type, args, log_file_path, logger)
 
             with torch.no_grad():
                 cc_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
