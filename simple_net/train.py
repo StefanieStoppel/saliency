@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import mlflow
 import logging
+import optuna
 
 from simple_net.loss import *
 from simple_net.utils import blur, AverageMeter
@@ -18,98 +19,98 @@ from utils.mlflow_utils import log_val_metrics, log_training_params, setup_mlflo
 matplotlib.use('Agg')
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--experiment_name', default="", type=str)
-parser.add_argument('--custom_loader', default=True, type=bool)
-parser.add_argument('--checkpoint_path', default="", type=str)
-parser.add_argument('--fine_tune', default=False, type=bool)
-parser.add_argument('--no_epochs', default=40, type=int)
-parser.add_argument('--lr', default=1e-3, type=float)
-parser.add_argument('--weight_decay', default=1e-4, type=float)
-parser.add_argument('--kldiv', default=True, type=bool)
-parser.add_argument('--cc', default=False, type=bool)
-parser.add_argument('--nss', default=False, type=bool)
-parser.add_argument('--sim', default=False, type=bool)
-parser.add_argument('--nss_emlnet', default=False, type=bool)
-parser.add_argument('--nss_norm', default=False, type=bool)
-parser.add_argument('--l1', default=False, type=bool)
-parser.add_argument('--lr_sched', default=False, type=bool)
-parser.add_argument('--dilation', default=False, type=bool)
-parser.add_argument('--enc_model', default="pnas", type=str)
-parser.add_argument('--optim', default="Adam", type=str)
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--experiment_name', default="", type=str)
+    parser.add_argument('--custom_loader', default=True, type=bool)
+    parser.add_argument('--checkpoint_path', default="", type=str)
+    parser.add_argument('--fine_tune', default=False, type=bool)
+    parser.add_argument('--no_epochs', default=40, type=int)
+    parser.add_argument('--lr', default=1e-4, type=float)
+    parser.add_argument('--weight_decay', default=1e-4, type=float)
+    parser.add_argument('--kldiv', default=True, type=bool)
+    parser.add_argument('--cc', default=False, type=bool)
+    parser.add_argument('--nss', default=False, type=bool)
+    parser.add_argument('--sim', default=False, type=bool)
+    parser.add_argument('--nss_emlnet', default=False, type=bool)
+    parser.add_argument('--nss_norm', default=False, type=bool)
+    parser.add_argument('--l1', default=False, type=bool)
+    parser.add_argument('--lr_sched', default=False, type=bool)
+    parser.add_argument('--dilation', default=False, type=bool)
+    parser.add_argument('--enc_model', default="pnas", type=str)
+    parser.add_argument('--optim', default="Adam", type=str)
 
-parser.add_argument('--load_weight', default=1, type=int)
-parser.add_argument('--kldiv_coeff', default=1.0, type=float)
-parser.add_argument('--step_size', default=5, type=int)
-parser.add_argument('--cc_coeff', default=-1.0, type=float)
-parser.add_argument('--sim_coeff', default=-1.0, type=float)
-parser.add_argument('--nss_coeff', default=1.0, type=float)
-parser.add_argument('--nss_emlnet_coeff', default=1.0, type=float)
-parser.add_argument('--nss_norm_coeff', default=1.0, type=float)
-parser.add_argument('--l1_coeff', default=1.0, type=float)
-parser.add_argument('--train_enc', default=1, type=int)
+    parser.add_argument('--load_weight', default=1, type=int)
+    parser.add_argument('--kldiv_coeff', default=1.0, type=float)
+    parser.add_argument('--step_size', default=5, type=int)
+    parser.add_argument('--cc_coeff', default=-1.0, type=float)
+    parser.add_argument('--sim_coeff', default=-1.0, type=float)
+    parser.add_argument('--nss_coeff', default=1.0, type=float)
+    parser.add_argument('--nss_emlnet_coeff', default=1.0, type=float)
+    parser.add_argument('--nss_norm_coeff', default=1.0, type=float)
+    parser.add_argument('--l1_coeff', default=1.0, type=float)
+    parser.add_argument('--train_enc', default=1, type=int)
 
-parser.add_argument('--dataset_dir', default="/home/samyak/old_saliency/saliency/SALICON_NEW/", type=str)
-parser.add_argument('--batch_size', default=32, type=int)
-parser.add_argument('--log_interval', default=60, type=int)
-parser.add_argument('--no_workers', default=4, type=int)
-parser.add_argument('--model_val_path', default="model.pt", type=str)
-parser.add_argument('--pretrained_model_path', default="/home/steffi/dev/CV2/saliency/saved_models/salicon_densenet.pt", type=str)
+    parser.add_argument('--dataset_dir', default="/home/samyak/old_saliency/saliency/SALICON_NEW/", type=str)
+    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--log_interval', default=60, type=int)
+    parser.add_argument('--no_workers', default=4, type=int)
+    parser.add_argument('--model_val_path', default="model.pt", type=str)
+    parser.add_argument('--pretrained_model_path',
+                        default="/home/steffi/dev/CV2/saliency/saved_models/salicon_densenet.pt", type=str)
 
-args = parser.parse_args()
+    return parser.parse_args()
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-if args.enc_model == "pnas":
-    print("PNAS Model")
-    from simple_net.model import PNASModel
-
-    model = PNASModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-
-elif args.enc_model == "densenet":
-    print("DenseNet Model")
-    from simple_net.model import DenseModel
-
-    model = DenseModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-
-elif args.enc_model == "salicon_densenet":
-    print("Training existing Salicon DenseNet Model")
-    from simple_net.model import DenseModel
-    model = DenseModel()
-    model = nn.DataParallel(model)
-    model.load_state_dict(torch.load(args.pretrained_model_path))
-    if args.fine_tune:
-        print("Finetuning only deconv_layer5.")
-        layers = ["deconv_layer5"]
-        print(f"Finetuning layers: {layers}")
-        for name, param in model.named_parameters():
-            if not any(layer in name for layer in layers):
-                param.requires_grad = False
-    model = model.to(device)
-
-elif args.enc_model == "resnet":
-    print("ResNet Model")
-    from simple_net.model import ResNetModel
-
-    model = ResNetModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-
-elif args.enc_model == "vgg":
-    print("VGG Model")
-    from simple_net.model import VGGModel
-
-    model = VGGModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-
-elif args.enc_model == "mobilenet":
-    print("Mobile NetV2")
-    from simple_net.model import MobileNetV2
-
-    model = MobileNetV2(train_enc=bool(args.train_enc), load_weight=args.load_weight)
-
-if torch.cuda.device_count() > 1:
-    print("Let's use", torch.cuda.device_count(), "GPUs!")
-    model = nn.DataParallel(model)
-model.to(device)
-
+#
+# if args.enc_model == "pnas":
+#     print("PNAS Model")
+#     from simple_net.model import PNASModel
+#
+#     model = PNASModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
+#
+# elif args.enc_model == "densenet":
+#     print("DenseNet Model")
+#     from simple_net.model import DenseModel
+#
+#     model = DenseModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
+#
+# elif args.enc_model == "salicon_densenet":
+#     print("Training existing Salicon DenseNet Model")
+#     from simple_net.model import DenseModel
+#     model = DenseModel()
+#     model = nn.DataParallel(model)
+#     model.load_state_dict(torch.load(args.pretrained_model_path))
+#     if args.fine_tune:
+#         print("Finetuning only deconv_layer5.")
+#         layers = ["deconv_layer5"]
+#         print(f"Finetuning layers: {layers}")
+#         for name, param in model.named_parameters():
+#             if not any(layer in name for layer in layers):
+#                 param.requires_grad = False
+#     model = model.to(device)
+#
+# elif args.enc_model == "resnet":
+#     print("ResNet Model")
+#     from simple_net.model import ResNetModel
+#
+#     model = ResNetModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
+#
+# elif args.enc_model == "vgg":
+#     print("VGG Model")
+#     from simple_net.model import VGGModel
+#
+#     model = VGGModel(train_enc=bool(args.train_enc), load_weight=args.load_weight)
+#
+# elif args.enc_model == "mobilenet":
+#     print("Mobile NetV2")
+#     from simple_net.model import MobileNetV2
+#
+#     model = MobileNetV2(train_enc=bool(args.train_enc), load_weight=args.load_weight)
+#
+# if torch.cuda.device_count() > 1:
+#     print("Let's use", torch.cuda.device_count(), "GPUs!")
+#     model = nn.DataParallel(model)
+# model.to(device)
 
 
 def setup_logging(log_file_path):
@@ -194,7 +195,7 @@ def train(model, optimizer, loader, epoch, device,
     return avg_epoch_loss
 
 
-def validate(model, loader, epoch, device, args):
+def validate(model, loader, epoch, device, args, logger, log_file_path):
     model.eval()
     tic = time.time()
     cc_loss = AverageMeter()
@@ -233,66 +234,136 @@ def validate(model, loader, epoch, device, args):
     return cc_loss.avg
 
 
-# create mlflow experiment
-experiment_id, run_name = setup_mlflow_experiment(args)
+def get_suggested_params(trial, logger):
+    from pprint import pformat
+    sugg_lr = trial.suggest_loguniform("lr", 1e-6, 1e-4)
+    sugg_dropout = trial.suggest_uniform("dropout", 0.0, 1.0)
+    sugg_optimizer = trial.suggest_categorical("optim", ["Adam", "SGD"])
+    sugg_loss_type = trial.suggest_categorical("loss_type", ["kldiv", "cc", "sim"])
+    sugg_finetune_layers = trial.suggest_categorical("finetune_layers", [["deconv_layer5"],
+                                                                         ["deconv_layer5", "deconv_layer4"],
+                                                                         ["deconv_layer5", "deconv_layer4", "deconv_layer3"]])
+    logger.info(f"Trial parameters: {pformat([trial.params])}")
+    return sugg_lr, sugg_dropout, sugg_optimizer, sugg_loss_type, sugg_finetune_layers
 
-with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
-    # mlflow run infos & paths
-    active_run = mlflow.active_run()
-    run_id = active_run.info.run_id
-    artifact_path = get_artifact_path(active_run)
 
-    # logging
-    log_path = get_log_path(active_run)
-    log_file_path = os.path.join(log_path, "train.log")
-    logger = setup_logging(log_file_path)
-    logger.info(f"Starting run {run_id} of experiment {experiment_id}.")
+def create_model(args, device, sugg_dropout, sugg_finetune_layers):
+    from simple_net.model import DenseModel
+    model = DenseModel(dropout=sugg_dropout)
+    model = nn.DataParallel(model)
+    model.load_state_dict(torch.load(args.pretrained_model_path))
 
-    # log training params to mlflow
-    loss_type = _get_loss_type_str(args)
-    log_training_params(device, loss_type, args)
+    if args.fine_tune:
+        layers = sugg_finetune_layers
+        print(f"Finetuning layers: {layers}")
+        for name, param in model.named_parameters():
+            if not any(layer in name for layer in layers):
+                param.requires_grad = False
+    model = model.to(device)
+    return model
 
-    # dataset loaders
-    train_loader, val_loader = get_data_loaders(args.dataset_dir, args.custom_loader, args.batch_size, args.no_workers)
 
-    params = list(filter(lambda p: p.requires_grad, model.parameters()))
-    trainable_params = sum([np.prod(p.size()) for p in params])
-    logging.info(f"Training {trainable_params} model parameters.")
+def objective(trial, args=None):
+    print("Training existing Salicon DenseNet Model")
 
-    if args.optim == "Adam":
-        optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
-    if args.optim == "Adagrad":
-        optimizer = torch.optim.Adagrad(params, lr=args.lr, weight_decay=args.weight_decay)
-    if args.optim == "SGD":
-        optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
-    if args.lr_sched:
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
 
-    start_epoch = 0
-    # load checkpoint
-    if len(args.checkpoint_path) > 0:
-        model_state_dict, optimizer_state_dict, start_epoch, train_loss, val_loss = load_checkpoint(args.checkpoint_path)
-        model.load_state_dict(model_state_dict)
-        optimizer.load_state_dict(optimizer_state_dict)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+    # create mlflow experiment
+    experiment_id, run_name = setup_mlflow_experiment(args)
 
-    for epoch in range(start_epoch, args.no_epochs):
-        loss_type = _get_loss_type_str(args)
+    with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
+        # mlflow run infos & paths
+        active_run = mlflow.active_run()
+        run_id = active_run.info.run_id
+        artifact_path = get_artifact_path(active_run)
 
-        loss = train(model, optimizer, train_loader, epoch, device,
-                     loss_type, args, log_file_path, logger, artifact_path)
+        # logging
+        log_path = get_log_path(active_run)
+        log_file_path = os.path.join(log_path, "train.log")
+        logger = setup_logging(log_file_path)
+        logger.info(f"Starting run {run_id} of experiment {experiment_id}.")
 
-        with torch.no_grad():
-            cc_loss = validate(model, val_loader, epoch, device, args)
-            if epoch == 0:
-                best_loss = cc_loss
-            if best_loss <= cc_loss:
-                best_loss = cc_loss
+        # create parameters using optuna
+        sugg_lr, sugg_dropout, sugg_optimizer, sugg_loss_type, sugg_finetune_layers = get_suggested_params(trial, logger)
 
-            create_checkpoint(model, optimizer, loss, cc_loss, logger, artifact_path, epoch, args)
+        # create network model
+        model = create_model(args, device, sugg_dropout, sugg_finetune_layers)
 
-            logger.info("")
-            mlflow.log_artifact(log_file_path)
+        # log training params to mlflow
+        loss_type = sugg_loss_type
+        log_training_params(device, loss_type, args)
 
+        # dataset loaders
+        train_loader, val_loader = get_data_loaders(args.dataset_dir, args.custom_loader, args.batch_size, args.no_workers)
+
+        params = list(filter(lambda p: p.requires_grad, model.parameters()))
+        trainable_params = sum([np.prod(p.size()) for p in params])
+        logging.info(f"Training {trainable_params} model parameters.")
+
+        if sugg_optimizer == "Adam":
+            optimizer = torch.optim.Adam(params, lr=sugg_lr, weight_decay=args.weight_decay)
+        if sugg_optimizer == "Adagrad":
+            optimizer = torch.optim.Adagrad(params, lr=sugg_lr, weight_decay=args.weight_decay)
+        if sugg_optimizer == "SGD":
+            optimizer = torch.optim.SGD(params, lr=sugg_lr, momentum=0.9, weight_decay=args.weight_decay)
         if args.lr_sched:
-            scheduler.step()
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+
+        start_epoch = 0
+        # load checkpoint
+        if len(args.checkpoint_path) > 0:
+            model_state_dict, optimizer_state_dict, start_epoch, train_loss, val_loss = load_checkpoint(args.checkpoint_path)
+            model.load_state_dict(model_state_dict)
+            optimizer.load_state_dict(optimizer_state_dict)
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+
+        for epoch in range(start_epoch, args.no_epochs):
+            loss = train(model, optimizer, train_loader, epoch, device,
+                         loss_type, args, log_file_path, logger, artifact_path)
+
+            with torch.no_grad():
+                cc_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
+                if epoch == 0:
+                    best_loss = cc_loss
+                if best_loss <= cc_loss:
+                    best_loss = cc_loss
+
+                # report intermediate cc_loss
+                trial.report(cc_loss, step=epoch)
+                if trial.should_prune():
+                    raise optuna.exceptions.TrialPruned()
+                create_checkpoint(model, optimizer, loss, cc_loss, logger, artifact_path, epoch, args)
+
+                logger.info("")
+                mlflow.log_artifact(log_file_path)
+
+            if args.lr_sched:
+                scheduler.step()
+    # return final validation loss of model after X epochs
+    return validate(model, val_loader, epoch, device, args, logger, log_file_path)
+
+
+if __name__ == "__main__":
+    from functools import partial
+    args = parse_arguments()
+    objective_ = partial(objective, args=args)
+    study = optuna.create_study(direction="maximize")
+    study.optimize(objective_, n_trials=3, timeout=600)
+
+    pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
+    complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+
+    print("Study statistics: ")
+    print("  Number of finished trials: ", len(study.trials))
+    print("  Number of pruned trials: ", len(pruned_trials))
+    print("  Number of complete trials: ", len(complete_trials))
+
+    print("Best trial:")
+    trial = study.best_trial
+
+    print("  Value: ", trial.value)
+
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print("    {}: {}".format(key, value))
