@@ -98,9 +98,10 @@ class PNASModel(nn.Module):
         x = x.squeeze(1)
         return x
 
+
 class DenseModel(nn.Module):
 
-    def __init__(self, num_channels=3, train_enc=False, load_weight=1):
+    def __init__(self, num_channels=3, train_enc=False, load_weight=1, dropout=0.0):
         super(DenseModel, self).__init__()
 
         self.dense = models.densenet161(pretrained=bool(load_weight)).features
@@ -108,7 +109,7 @@ class DenseModel(nn.Module):
         for param in self.dense.parameters():
             param.requires_grad = train_enc
 
-        self.dropout_layer = nn.Dropout2d(p=0.5)
+        self.dropout_layer = nn.Dropout2d(p=dropout)
 
         self.linear_upsampling = nn.UpsamplingBilinear2d(scale_factor=2)
         self.conv_layer0 = nn.Sequential(*list(self.dense)[:3])
