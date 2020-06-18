@@ -51,7 +51,7 @@ def log_val_metrics(cc_loss, epoch, kldiv_loss, nss_loss, sim_loss, execution_ti
     mlflow.log_metrics(metrics, step=epoch)
 
 
-def log_training_params(device, loss_type_str, args):
+def log_training_params(logger, device, loss_type_str, args):
     training_params = {
         "device": device,
         "loss_type": loss_type_str,
@@ -79,5 +79,6 @@ def log_training_params(device, loss_type_str, args):
         "no_workers": args.no_workers,
         "model_val_path": args.model_val_path
     }
+    logger.info(f"Training args: {args}")
     mlflow.log_params(training_params)
 
