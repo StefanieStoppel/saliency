@@ -99,6 +99,25 @@ class PNASModel(nn.Module):
         return x
 
 
+DECONV_LAYERS = {
+    "deconv_layer3": nn.Sequential(
+        nn.Conv2d(in_channels=192 + 192, out_channels=96, kernel_size=3, padding=1, bias=True),
+        nn.ReLU(inplace=True),
+        nn.UpsamplingBilinear2d(scale_factor=2)
+    ),
+    "deconv_layer4": nn.Sequential(
+        nn.Conv2d(in_channels=96 + 96, out_channels=128, kernel_size=3, padding=1, bias=True),
+        nn.ReLU(inplace=True),
+        nn.UpsamplingBilinear2d(scale_factor=2)
+    ),
+    "deconv_layer5": nn.Sequential(
+        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1, bias=True),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(in_channels=128, out_channels=1, kernel_size=3, padding=1, bias=True),
+        nn.Sigmoid()
+    )
+}
+
 class DenseModel(nn.Module):
 
     def __init__(self, num_channels=3, train_enc=False, load_weight=1, dropout=0.0):

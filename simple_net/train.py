@@ -9,6 +9,7 @@ import mlflow
 import logging
 import optuna
 
+from model import DECONV_LAYERS
 from simple_net.loss import *
 from simple_net.utils import blur, AverageMeter
 from checkpoint_utils import load_checkpoint, create_checkpoint
@@ -25,6 +26,7 @@ def parse_arguments():
     parser.add_argument('--custom_loader', default=True, type=bool)
     parser.add_argument('--checkpoint_path', default="", type=str)
     parser.add_argument('--fine_tune', default=False, type=bool)
+    parser.add_argument('--fine_tune_override_layers', default=False, type=bool)
     parser.add_argument('--no_epochs', default=40, type=int)
     parser.add_argument('--lr', default=1e-4, type=float)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
@@ -196,7 +198,7 @@ def get_suggested_params(trial, logger):
     return sugg_lr, sugg_dropout, sugg_optimizer, sugg_loss_type, sugg_finetune_layers
 
 
-def create_model(args, device, sugg_dropout, sugg_finetune_layers):
+def create_model(args, device, sugg_dropout, sugg_finetune_layers, logger):
     from simple_net.model import DenseModel
     model = DenseModel(dropout=sugg_dropout)
     model = nn.DataParallel(model)
@@ -204,10 +206,19 @@ def create_model(args, device, sugg_dropout, sugg_finetune_layers):
 
     if args.fine_tune:
         layers = sugg_finetune_layers
-        print(f"Finetuning layers: {layers}")
+        logger.info(f"Fine-tuning layers: {layers}")
+        frozen = []
         for name, param in model.named_parameters():
             if not any(layer in name for layer in layers):
+                frozen.append(name)
                 param.requires_grad = False
+        logger.info(f"Frozen model weights: {frozen}")
+
+        # reset fine-tuning layers => reinit weights
+        if args.fine_tune_override_layers:
+            for layer in layers:
+                model_layer = eval(f"model.module.{layer}")
+                model_layer = DECONV_LAYERS[layer]
     model = model.to(device)
     return model
 
@@ -218,100 +229,99 @@ def objective(trial, args=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
+    # mlflow run infos & paths
+    active_run = mlflow.active_run()
+    run_id = active_run.info.run_id
+    artifact_path = get_artifact_path(active_run)
+
+    # logging
+    log_path = get_log_path(active_run)
+    log_file_path = os.path.join(log_path, "train.log")
+    logger = setup_logging(log_file_path)
+    logger.info(f"Starting run {run_id} of experiment {experiment_id}.")
+    # create parameters using optuna
+    sugg_lr, sugg_dropout, sugg_optimizer, sugg_loss_type, sugg_finetune_layers = get_suggested_params(trial, logger)
+
+    # create network model
+    model = create_model(args, device, sugg_dropout, sugg_finetune_layers, logger)
+
+    # log training params to mlflow
+    loss_type = sugg_loss_type
+    log_training_params(logger, device, loss_type, args)
+
+    # dataset loaders
+    train_loader, val_loader = get_data_loaders(args.dataset_dir, args.custom_loader, args.batch_size, args.no_workers)
+
+    params = list(filter(lambda p: p.requires_grad, model.parameters()))
+    trainable_params = sum([np.prod(p.size()) for p in params])
+    logging.info(f"Training {trainable_params} model parameters.")
+
+    if sugg_optimizer == "Adam":
+        optimizer = torch.optim.Adam(params, lr=sugg_lr, weight_decay=args.weight_decay)
+    if sugg_optimizer == "Adagrad":
+        optimizer = torch.optim.Adagrad(params, lr=sugg_lr, weight_decay=args.weight_decay)
+    if sugg_optimizer == "SGD":
+        optimizer = torch.optim.SGD(params, lr=sugg_lr, momentum=0.9, weight_decay=args.weight_decay)
+    if args.lr_sched:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+
+    start_epoch = 0
+    # load checkpoint
+    if len(args.checkpoint_path) > 0:
+        model_state_dict, optimizer_state_dict, start_epoch, train_loss, val_loss = load_checkpoint(args.checkpoint_path)
+        model.load_state_dict(model_state_dict)
+        optimizer.load_state_dict(optimizer_state_dict)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+
+    for epoch in range(start_epoch, args.no_epochs):
+        loss = train(model, optimizer, train_loader, epoch, device,
+                     loss_type, args, log_file_path, logger)
+
+        with torch.no_grad():
+            cc_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
+            if epoch == 0:
+                best_loss = cc_loss
+            if best_loss <= cc_loss:
+                best_loss = cc_loss
+
+        # report intermediate cc_loss
+        trial.report(cc_loss, step=epoch)
+        if trial.should_prune():
+            raise optuna.exceptions.TrialPruned()
+        create_checkpoint(model, optimizer, loss, cc_loss, logger, artifact_path, epoch, args)
+
+        logger.info("")
+        mlflow.log_artifact(log_file_path)
+
+        if args.lr_sched:
+            scheduler.step()
+    # return best validation loss of model after X epochs
+    return cc_loss
+
+
+if __name__ == "__main__":
+    args = parse_arguments()
+
     # create mlflow experiment
     experiment_id, run_name = setup_mlflow_experiment(args)
 
     with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
-        # mlflow run infos & paths
-        active_run = mlflow.active_run()
-        run_id = active_run.info.run_id
-        artifact_path = get_artifact_path(active_run)
+        study = optuna.create_study(study_name=args.experiment_name, direction="maximize")
+        study.optimize(lambda trial: objective(trial, args), n_trials=2)
 
-        # logging
-        log_path = get_log_path(active_run)
-        log_file_path = os.path.join(log_path, "train.log")
-        logger = setup_logging(log_file_path)
-        logger.info(f"Starting run {run_id} of experiment {experiment_id}.")
-        # create parameters using optuna
-        sugg_lr, sugg_dropout, sugg_optimizer, sugg_loss_type, sugg_finetune_layers = get_suggested_params(trial, logger)
+        pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
+        complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
 
-        # create network model
-        model = create_model(args, device, sugg_dropout, sugg_finetune_layers)
+        print("Study statistics: ")
+        print("  Number of finished trials: ", len(study.trials))
+        print("  Number of pruned trials: ", len(pruned_trials))
+        print("  Number of complete trials: ", len(complete_trials))
 
-        # log training params to mlflow
-        loss_type = sugg_loss_type
-        log_training_params(logger, device, loss_type, args)
+        print("Best trial:")
+        trial = study.best_trial
 
-        # dataset loaders
-        train_loader, val_loader = get_data_loaders(args.dataset_dir, args.custom_loader, args.batch_size, args.no_workers)
+        print("  Value: ", trial.value)
 
-        params = list(filter(lambda p: p.requires_grad, model.parameters()))
-        trainable_params = sum([np.prod(p.size()) for p in params])
-        logging.info(f"Training {trainable_params} model parameters.")
-
-        if sugg_optimizer == "Adam":
-            optimizer = torch.optim.Adam(params, lr=sugg_lr, weight_decay=args.weight_decay)
-        if sugg_optimizer == "Adagrad":
-            optimizer = torch.optim.Adagrad(params, lr=sugg_lr, weight_decay=args.weight_decay)
-        if sugg_optimizer == "SGD":
-            optimizer = torch.optim.SGD(params, lr=sugg_lr, momentum=0.9, weight_decay=args.weight_decay)
-        if args.lr_sched:
-            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
-
-        start_epoch = 0
-        # load checkpoint
-        if len(args.checkpoint_path) > 0:
-            model_state_dict, optimizer_state_dict, start_epoch, train_loss, val_loss = load_checkpoint(args.checkpoint_path)
-            model.load_state_dict(model_state_dict)
-            optimizer.load_state_dict(optimizer_state_dict)
-            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
-
-        for epoch in range(start_epoch, args.no_epochs):
-            loss = train(model, optimizer, train_loader, epoch, device,
-                         loss_type, args, log_file_path, logger)
-
-            with torch.no_grad():
-                cc_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
-                if epoch == 0:
-                    best_loss = cc_loss
-                if best_loss <= cc_loss:
-                    best_loss = cc_loss
-
-                # report intermediate cc_loss
-                trial.report(cc_loss, step=epoch)
-                if trial.should_prune():
-                    raise optuna.exceptions.TrialPruned()
-                create_checkpoint(model, optimizer, loss, cc_loss, logger, artifact_path, epoch, args)
-
-                logger.info("")
-                mlflow.log_artifact(log_file_path)
-
-            if args.lr_sched:
-                scheduler.step()
-    # return final validation loss of model after X epochs
-    return validate(model, val_loader, epoch, device, args, logger, log_file_path)
-
-
-if __name__ == "__main__":
-    from functools import partial
-    args = parse_arguments()
-    objective_ = partial(objective, args=args)
-    study = optuna.create_study(direction="maximize")
-    study.optimize(objective_, n_trials=3, timeout=600)
-
-    pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
-    complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-
-    print("Study statistics: ")
-    print("  Number of finished trials: ", len(study.trials))
-    print("  Number of pruned trials: ", len(pruned_trials))
-    print("  Number of complete trials: ", len(complete_trials))
-
-    print("Best trial:")
-    trial = study.best_trial
-
-    print("  Value: ", trial.value)
-
-    print("  Params: ")
-    for key, value in trial.params.items():
-        print("    {}: {}".format(key, value))
+        print("  Params: ")
+        for key, value in trial.params.items():
+            print("    {}: {}".format(key, value))
