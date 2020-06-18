@@ -186,15 +186,12 @@ class DenseModel(nn.Module):
         out5 = self.deconv_layer0(out5)
 
         x = torch.cat((out5,out4), 1)
-        x = self.dropout_layer(x)
         x = self.deconv_layer1(x)
 
         x = torch.cat((x,out3), 1)
-        x = self.dropout_layer(x)
         x = self.deconv_layer2(x)
 
         x = torch.cat((x,out2), 1)
-        x = self.dropout_layer(x)
         x = self.deconv_layer3(x)
         
         x = torch.cat((x,out1), 1)
