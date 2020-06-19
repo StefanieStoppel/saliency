@@ -216,6 +216,7 @@ def create_model(args, device, sugg_dropout, sugg_finetune_layers, logger):
 
         # reset fine-tuning layers => reinit weights
         if args.fine_tune_override_layers:
+            logger.info(f"Reinitializing layers: {layers}")
             for layer in layers:
                 model_layer = eval(f"model.module.{layer}")
                 model_layer = DECONV_LAYERS[layer]
