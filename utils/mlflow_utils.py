@@ -17,8 +17,7 @@ def setup_mlflow_experiment(args):
         mlflow.create_experiment(experiment_name)
         experiment = mlflow.get_experiment_by_name(experiment_name)
     mlflow.set_experiment(experiment_name)
-    experiment_id = experiment.experiment_id
-    return experiment_id
+    return experiment
 
 
 def get_artifact_path(active_run):
@@ -27,10 +26,10 @@ def get_artifact_path(active_run):
     return final_path
 
 
-def get_log_path(active_run):
-    run_path = get_run_path(active_run)
-    log_path = os.path.abspath(os.path.join(run_path, "logs"))
-    os.makedirs(log_path, exist_ok=True)
+def get_log_path(experiment):
+    experiment_path = experiment.artifact_location.replace("file://", "")
+    log_path = os.path.abspath(os.path.join(experiment_path, "logs"))
+    os.mkdir(log_path)
     return log_path
 
 

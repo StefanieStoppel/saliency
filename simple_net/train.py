@@ -224,11 +224,11 @@ def create_model(args, device, sugg_dropout, sugg_finetune_layers, logger):
     return model
 
 
-def objective(trial, experiment_id, args=None):
+def objective(trial, experiment, args=None):
     print("Training existing Salicon DenseNet Model")
     run_name = str(time.time()).split('.')[0]
 
-    with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
+    with mlflow.start_run(run_name=run_name, experiment_id=experiment.experiment_id):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(f"Using device: {device}")
 
@@ -238,10 +238,10 @@ def objective(trial, experiment_id, args=None):
         artifact_path = get_artifact_path(active_run)
 
         # logging
-        log_path = get_log_path(active_run)
+        log_path = get_log_path(experiment)
         log_file_path = os.path.join(log_path, "train.log")
         logger = setup_logging(log_file_path)
-        logger.info(f"Starting run {run_id} of experiment {experiment_id}.")
+        logger.info(f"Starting run {run_id} of experiment {experiment.experiment_id}.")
         # create parameters using optuna
         sugg_lr, sugg_dropout, sugg_optimizer, sugg_loss_type, sugg_finetune_layers = get_suggested_params(trial, logger)
 
@@ -306,10 +306,10 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     # create mlflow experiment
-    experiment_id = setup_mlflow_experiment(args)
+    experiment = setup_mlflow_experiment(args)
 
     study = optuna.create_study(study_name=args.experiment_name, direction="maximize")
-    study.optimize(lambda trial: objective(trial, experiment_id, args), n_trials=15)
+    study.optimize(lambda trial: objective(trial, experiment, args), n_trials=15)
 
     pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
     complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
