@@ -282,10 +282,11 @@ def objective(trial, experiment, args=None):
 
             with torch.no_grad():
                 cc_loss, kldiv_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
-                total_loss = kldiv_loss + cc_loss
+                total_loss = ((kldiv_loss + cc_loss) + 1) / 3
+                logger.info(f"Total loss: {total_loss}")
                 if epoch == 0:
                     best_loss = total_loss
-                if best_loss >= total_loss:
+                if best_loss <= total_loss:
                     best_loss = total_loss
                     logger.info(f"Best combined loss updated({args.kldiv_coeff} * kldiv + "
                                 f"{args.cc_coeff} * cc_loss): {best_loss}")
@@ -311,7 +312,7 @@ if __name__ == "__main__":
     # create mlflow experiment
     experiment = setup_mlflow_experiment(args)
 
-    study = optuna.create_study(study_name=args.experiment_name, direction="maximize")
+    study = optuna.create_study(study_name=args.experiment_name, direction="minimize")
     study.optimize(lambda trial: objective(trial, experiment, args), n_trials=6)
 
     pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
