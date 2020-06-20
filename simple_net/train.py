@@ -182,7 +182,7 @@ def validate(model, loader, epoch, device, args, logger, log_file_path):
     mlflow.log_artifact(log_file_path)
     sys.stdout.flush()
 
-    return cc_loss.avg
+    return cc_loss.avg, kldiv_loss.avg
 
 
 def get_suggested_params(trial, logger):
@@ -281,14 +281,17 @@ def objective(trial, experiment, args=None):
                          loss_type, args, log_file_path, logger)
 
             with torch.no_grad():
-                cc_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
+                cc_loss, kldiv_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
+                total_loss = kldiv_loss + cc_loss
                 if epoch == 0:
-                    best_loss = cc_loss
-                if best_loss <= cc_loss:
-                    best_loss = cc_loss
+                    best_loss = total_loss
+                if best_loss >= total_loss:
+                    best_loss = total_loss
+                    logger.info(f"Best combined loss updated({args.kldiv_coeff} * kldiv + "
+                                f"{args.cc_coeff} * cc_loss): {best_loss}")
 
             # report intermediate cc_loss
-            trial.report(cc_loss, step=epoch)
+            trial.report(total_loss, step=epoch)
             if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
             create_checkpoint(model, optimizer, loss, cc_loss, logger, artifact_path, epoch, args)
@@ -299,7 +302,7 @@ def objective(trial, experiment, args=None):
             if args.lr_sched:
                 scheduler.step()
     # return best validation loss of model after X epochs
-    return cc_loss
+    return total_loss
 
 
 if __name__ == "__main__":
