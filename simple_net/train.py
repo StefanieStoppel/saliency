@@ -190,7 +190,7 @@ def get_suggested_params(trial, logger):
     sugg_lr = trial.suggest_float("lr", 1e-6, 1e-4, log=True)
     sugg_dropout = trial.suggest_float("dropout", 0.0, 0.8, step=0.1)
     sugg_optimizer = trial.suggest_categorical("optim", ["Adam", "SGD"])
-    sugg_loss_type = trial.suggest_categorical("loss_type", ["kldiv", "cc"])
+    sugg_loss_type = trial.suggest_categorical("loss_type", ["kldiv"])
     sugg_finetune_layers = trial.suggest_categorical("finetune_layers", [["deconv_layer5"],
                                                                          ["deconv_layer5", "deconv_layer4"],
                                                                          ["deconv_layer5", "deconv_layer4", "deconv_layer3"]])
