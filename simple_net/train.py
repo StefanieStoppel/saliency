@@ -279,33 +279,37 @@ def objective(trial, experiment, args=None):
             scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
 
         for epoch in range(start_epoch, args.no_epochs):
-            loss = train(model, optimizer, train_loader, epoch, device,
-                         loss_type, args, log_file_path, logger)
+            try:
+                loss = train(model, optimizer, train_loader, epoch, device,
+                             loss_type, args, log_file_path, logger)
 
-            with torch.no_grad():
-                cc_loss, kldiv_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
-                logger.info(f"cc_loss avg: {cc_loss}")
-                logger.info(f"kldiv_loss avg: {kldiv_loss}")
-                total_loss = ((args.kldiv_coeff * kldiv_loss + args.cc_coeff * cc_loss) + 1) / 3
-                logger.info(f"Total loss: {total_loss}")
-                if epoch == 0:
-                    best_loss = total_loss
-                if best_loss <= total_loss:
-                    best_loss = total_loss
-                    logger.info(f"Best combined loss updated({args.kldiv_coeff} * kldiv + "
-                                f"{args.cc_coeff} * cc_loss): {best_loss}")
+                with torch.no_grad():
+                    cc_loss, kldiv_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
+                    logger.info(f"cc_loss avg: {cc_loss}")
+                    logger.info(f"kldiv_loss avg: {kldiv_loss}")
+                    total_loss = ((args.kldiv_coeff * kldiv_loss + args.cc_coeff * cc_loss) + 1) / 3
+                    logger.info(f"Total loss: {total_loss}")
+                    if epoch == 0:
+                        best_loss = total_loss
+                    if best_loss <= total_loss:
+                        best_loss = total_loss
+                        logger.info(f"Best combined loss updated({args.kldiv_coeff} * kldiv + "
+                                    f"{args.cc_coeff} * cc_loss): {best_loss}")
 
-            # report intermediate cc_loss
-            trial.report(total_loss, step=epoch)
-            if trial.should_prune():
+                # report intermediate cc_loss
+                trial.report(total_loss, step=epoch)
+                if trial.should_prune():
+                    raise optuna.exceptions.TrialPruned()
+                create_checkpoint(model, optimizer, loss, cc_loss, logger, artifact_path, epoch, args)
+
+                logger.info("")
+                mlflow.log_artifact(log_file_path)
+
+                if args.lr_sched:
+                    scheduler.step()
+            except KeyboardInterrupt:
+                logger.error(f"Interrupted trial manually.")
                 raise optuna.exceptions.TrialPruned()
-            create_checkpoint(model, optimizer, loss, cc_loss, logger, artifact_path, epoch, args)
-
-            logger.info("")
-            mlflow.log_artifact(log_file_path)
-
-            if args.lr_sched:
-                scheduler.step()
     # return best validation loss of model after X epochs
     return total_loss
 
