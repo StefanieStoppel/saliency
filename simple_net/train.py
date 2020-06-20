@@ -191,9 +191,11 @@ def get_suggested_params(trial, logger):
     sugg_dropout = trial.suggest_float("dropout", 0.0, 0.8, step=0.1)
     sugg_optimizer = trial.suggest_categorical("optim", ["Adam", "SGD"])
     sugg_loss_type = trial.suggest_categorical("loss_type", ["kldiv"])
-    sugg_finetune_layers = trial.suggest_categorical("finetune_layers", [["deconv_layer5"],
-                                                                         ["deconv_layer5", "deconv_layer4"],
-                                                                         ["deconv_layer5", "deconv_layer4", "deconv_layer3"]])
+    sugg_finetune_layers = []
+    if args.fine_tune:
+        sugg_finetune_layers = trial.suggest_categorical("finetune_layers", [["deconv_layer5"],
+                                                                             ["deconv_layer5", "deconv_layer4"],
+                                                                             ["deconv_layer5", "deconv_layer4", "deconv_layer3"]])
     logger.info(f"Trial parameters: {pformat([trial.params])}")
     return sugg_lr, sugg_dropout, sugg_optimizer, sugg_loss_type, sugg_finetune_layers
 
@@ -282,7 +284,9 @@ def objective(trial, experiment, args=None):
 
             with torch.no_grad():
                 cc_loss, kldiv_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
-                total_loss = ((kldiv_loss + cc_loss) + 1) / 3
+                logger.info(f"cc_loss avg: {cc_loss}")
+                logger.info(f"kldiv_loss avg: {kldiv_loss}")
+                total_loss = ((args.kldiv_coeff * kldiv_loss + args.cc_coeff * cc_loss) + 1) / 3
                 logger.info(f"Total loss: {total_loss}")
                 if epoch == 0:
                     best_loss = total_loss
