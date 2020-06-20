@@ -29,7 +29,7 @@ def get_artifact_path(active_run):
 def get_log_path(experiment):
     experiment_path = experiment.artifact_location.replace("file://", "")
     log_path = os.path.abspath(os.path.join(experiment_path, "logs"))
-    os.mkdir(log_path)
+    os.makedirs(log_path, exist_ok=True)
     return log_path
 
 
