@@ -312,7 +312,7 @@ if __name__ == "__main__":
     experiment = setup_mlflow_experiment(args)
 
     study = optuna.create_study(study_name=args.experiment_name, direction="maximize")
-    study.optimize(lambda trial: objective(trial, experiment, args), n_trials=15)
+    study.optimize(lambda trial: objective(trial, experiment, args), n_trials=6)
 
     pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
     complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
