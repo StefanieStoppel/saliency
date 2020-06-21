@@ -187,8 +187,8 @@ def validate(model, loader, epoch, device, args, logger, log_file_path):
 
 def get_suggested_params(trial, logger):
     from pprint import pformat
-    sugg_lr = trial.suggest_float("lr", 1e-7, 1e-5, log=True)
-    sugg_dropout = trial.suggest_float("dropout", 0.0, 0.8, step=0.1)
+    sugg_lr = 1e-4
+    sugg_dropout = 0.0
     sugg_optimizer = trial.suggest_categorical("optim", ["Adam"])
     sugg_loss_type = trial.suggest_categorical("loss_type", ["kldiv"])
     sugg_finetune_layers = []
@@ -246,6 +246,7 @@ def objective(trial, experiment, args=None):
         logger.info(f"Starting run {run_id} of experiment {experiment.experiment_id}.")
         # create parameters using optuna
         sugg_lr, sugg_dropout, sugg_optimizer, sugg_loss_type, sugg_finetune_layers = get_suggested_params(trial, logger)
+        mlflow.log_params(trial.params)
 
         # create network model
         model = create_model(args, device, sugg_dropout, sugg_finetune_layers, logger)
@@ -269,6 +270,7 @@ def objective(trial, experiment, args=None):
             optimizer = torch.optim.SGD(params, lr=sugg_lr, momentum=0.9, weight_decay=args.weight_decay)
         if args.lr_sched:
             scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
+            print(f"Using L Scheduler")
 
         start_epoch = 0
         # load checkpoint
