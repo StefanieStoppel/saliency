@@ -289,7 +289,7 @@ def objective(trial, experiment, args=None):
                     cc_loss, kldiv_loss = validate(model, val_loader, epoch, device, args, logger, log_file_path)
                     logger.info(f"cc_loss avg: {cc_loss}")
                     logger.info(f"kldiv_loss avg: {kldiv_loss}")
-                    total_loss = ((args.kldiv_coeff * kldiv_loss + args.cc_coeff * cc_loss) + 1) / 3
+                    total_loss = ((args.kldiv_coeff * kldiv_loss + args.cc_coeff * cc_loss) + 0.5) / 2
                     logger.info(f"Total loss: {total_loss}")
                     if epoch == 0:
                         best_loss = total_loss
