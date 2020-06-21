@@ -187,8 +187,8 @@ def validate(model, loader, epoch, device, args, logger, log_file_path):
 
 def get_suggested_params(trial, logger):
     from pprint import pformat
-    sugg_lr = trial.suggest_float("lr", 1e-6, 1e-4, log=True)
-    sugg_dropout = trial.suggest_float("dropout", 0.0, 0.5, step=0.1)
+    sugg_lr = trial.suggest_float("lr", 5.96e-6, 5.96e-6, log=True)
+    sugg_dropout = trial.suggest_float("dropout", 0.1, 0.3, step=0.1)
     sugg_optimizer = trial.suggest_categorical("optim", ["Adam"])
     sugg_loss_type = trial.suggest_categorical("loss_type", ["kldiv"])
     sugg_finetune_layers = []
