@@ -54,7 +54,6 @@ def log_training_params(logger, device, loss_type_str, args):
         "device": device,
         "loss_type": loss_type_str,
         "no_epochs": args.no_epochs,
-        "lr": args.lr,
         "nss_emlnet": args.nss_emlnet,
         "nss_norm": args.nss_norm,
         "l1": args.l1,

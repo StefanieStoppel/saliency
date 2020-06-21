@@ -187,8 +187,8 @@ def validate(model, loader, epoch, device, args, logger, log_file_path):
 
 def get_suggested_params(trial, logger):
     from pprint import pformat
-    sugg_lr = 1e-4
-    sugg_dropout = 0.0
+    sugg_lr = trial.suggest_float("lr", 1e-6, 1e-4, log=True)
+    sugg_dropout = trial.suggest_float("dropout", 0.0, 0.5, step=0.1)
     sugg_optimizer = trial.suggest_categorical("optim", ["Adam"])
     sugg_loss_type = trial.suggest_categorical("loss_type", ["kldiv"])
     sugg_finetune_layers = []
@@ -270,7 +270,7 @@ def objective(trial, experiment, args=None):
             optimizer = torch.optim.SGD(params, lr=sugg_lr, momentum=0.9, weight_decay=args.weight_decay)
         if args.lr_sched:
             scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.1)
-            print(f"Using L Scheduler")
+            logging.info(f"Using LR Scheduler")
 
         start_epoch = 0
         # load checkpoint
