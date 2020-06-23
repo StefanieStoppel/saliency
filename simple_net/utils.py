@@ -104,7 +104,7 @@ def img_save(tensor, fp, nrow=8, padding=2,
     ''' Add 0.5 after unnormalizing to [0, 255] to round to nearest integer '''
 
     ndarr = torch.round(grid.mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0)).to('cpu', torch.uint8).numpy()
-    im = Image.fromarray(ndarr)
+    im = Image.fromarray(ndarr).convert("LA")
     exten = fp.split('.')[-1]
     if exten == "png":
         im.save(fp, format=format, compress_level=0)
