@@ -1,5 +1,4 @@
 import argparse
-import os
 import sys
 import time
 
@@ -9,21 +8,16 @@ from checkpoint_utils import load_checkpoint
 
 matplotlib.use('Agg')
 from torch.utils.data import DataLoader
-import torch
 import torch.nn as nn
 from simple_net.dataloader import TestLoader, SaliconDataset, CustomDataset
 from simple_net.loss import *
-from tqdm import tqdm
 from simple_net.utils import *
-
-from mlflow import pytorch
 
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--custom_loader', default=True, type=bool)
-parser.add_argument('--val_img_dir', default="./images/", type=str)
-parser.add_argument('--mlflow_model', default=False, type=bool)
 parser.add_argument('--model_val_path', default="./saved_models/salicon_pnas.pt", type=str)
+parser.add_argument('--test_img_dir', default="./images/", type=str)
 parser.add_argument('--no_workers', default=4, type=int)
 parser.add_argument('--enc_model', default="pnas", type=str)
 parser.add_argument('--results_dir', default="./results/", type=str)
@@ -60,24 +54,15 @@ elif args.enc_model == "mobilenet":
     from simple_net.model import MobileNetV2
     model = MobileNetV2()
 
-# if args.enc_model != "mobilenet" and torch.cuda.device_count() > 1:
 model = nn.DataParallel(model)
 
-if args.mlflow_model:
-    print("Loading model using mlflow.")
-    pytorch.load_model(args.model_val_path)
-else:
-    print("Loading model normally.")
-    model_state_dict, _, _, _, _ = load_checkpoint(args.model_val_path)
-    if isinstance(model_state_dict, torch.nn.DataParallel):
-        state_dict = model_state_dict.module
-    model.load_state_dict(model_state_dict)
+print("Loading model.")
+model_state_dict, _, _, _, _ = load_checkpoint(args.model_val_path)
+if isinstance(model_state_dict, torch.nn.DataParallel):
+    state_dict = model_state_dict.module
+model.load_state_dict(model_state_dict)
 
 model = model.to(device)
-
-val_img_ids = os.listdir(args.val_img_dir)
-val_dataset = TestLoader(args.val_img_dir, val_img_ids)
-vis_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.no_workers)
 
 
 def validate(model, loader, device, args):
@@ -126,5 +111,11 @@ if args.validate:
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.no_workers)
     with torch.no_grad():
         validate(model, val_loader, device, args)
+        
 if args.save_results:
-    visualize_model(model, vis_loader, device, args)
+    test_img_dir = os.path.abspath(args.test_img_dir)
+    test_img_ids = os.listdir(test_img_dir)
+    test_dataset = TestLoader(test_img_dir, test_img_ids)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=args.no_workers)
+
+    visualize_model(model, test_loader, device, args)

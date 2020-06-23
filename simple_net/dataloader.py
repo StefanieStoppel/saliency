@@ -117,7 +117,6 @@ class TestLoader(DataLoader):
         img = Image.open(img_path).convert('RGB')
         sz = img.size
         img = self.img_transform(img)
-        # plot_img(img, f"./debug_images/test__getitem__{idx}")
         return img, img_id, sz
     
     def __len__(self):
