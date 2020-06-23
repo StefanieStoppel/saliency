@@ -93,7 +93,8 @@ def visualize_model(model, loader, device, args):
             pred_map = cv2.resize(pred_map, (sz[0], sz[1]))
 
             pred_map = torch.FloatTensor(blur(pred_map))
-            img_save(pred_map, join(args.results_dir, img_id[0]), normalize=True)
+            pred_id = img_id[0].replace("image", "prediction")
+            img_save(pred_map, join(args.results_dir, pred_id), normalize=True)
 
 
 def img_save(tensor, fp, nrow=8, padding=2,
@@ -102,7 +103,6 @@ def img_save(tensor, fp, nrow=8, padding=2,
                            normalize=normalize, range=range, scale_each=scale_each)
 
     ''' Add 0.5 after unnormalizing to [0, 255] to round to nearest integer '''
-
     ndarr = torch.round(grid.mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0)).to('cpu', torch.uint8).numpy()
     im = Image.fromarray(ndarr).convert("LA")
     exten = fp.split('.')[-1]
