@@ -293,7 +293,7 @@ def objective(trial, experiment, args=None):
                     logger.info(f"Total loss: {total_loss}")
                     if epoch == 0:
                         best_loss = total_loss
-                    if best_loss <= total_loss:
+                    if total_loss <= best_loss:
                         best_loss = total_loss
                         logger.info(f"Best combined loss updated({args.kldiv_coeff} * kldiv + "
                                     f"{args.cc_coeff} * cc_loss): {best_loss}")
